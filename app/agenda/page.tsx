@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import {
   Scissors,
@@ -15,6 +16,10 @@ import {
   MessageSquare,
   Trash2,
   AlertTriangle,
+  Lock,
+  LogOut,
+  KeyRound,
+  ArrowLeft,
 } from 'lucide-react';
 
 // --- CONFIGURAÇÕES ---
@@ -23,6 +28,9 @@ const MESES = [
   'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
   'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
 ];
+
+// PIN de acesso do barbeiro (pode ser configurado no .env.local via NEXT_PUBLIC_ADMIN_PIN)
+const ADMIN_PIN = process.env.NEXT_PUBLIC_ADMIN_PIN || '1234';
 
 type Agendamento = {
   id: string;
@@ -39,12 +47,41 @@ export default function AgendaAdmin() {
   const today = new Date();
   const todayStr = today.toISOString().split('T')[0];
 
+  // Estado de autenticação do PIN
+  const [autenticado, setAutenticado] = useState<boolean | null>(null);
+  const [pinInput, setPinInput] = useState('');
+  const [erroPin, setErroPin] = useState(false);
+
   const [calYear, setCalYear] = useState(today.getFullYear());
   const [calMonth, setCalMonth] = useState(today.getMonth());
   const [dataSelecionada, setDataSelecionada] = useState(todayStr);
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
   const [carregando, setCarregando] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+
+  // Verifica se o barbeiro já fez login anteriormente neste dispositivo
+  useEffect(() => {
+    const salvo = typeof window !== 'undefined' ? localStorage.getItem('blackstar_admin_auth') : null;
+    setAutenticado(salvo === 'true');
+  }, []);
+
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (pinInput.trim() === ADMIN_PIN) {
+      localStorage.setItem('blackstar_admin_auth', 'true');
+      setAutenticado(true);
+      setErroPin(false);
+      setPinInput('');
+    } else {
+      setErroPin(true);
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('blackstar_admin_auth');
+    setAutenticado(false);
+    setPinInput('');
+  };
 
   // Formatar data YYYY-MM-DD para DD/MM/YYYY
   const formatarData = (d: string) => d.split('-').reverse().join('/');
@@ -65,8 +102,10 @@ export default function AgendaAdmin() {
   }, [dataSelecionada]);
 
   useEffect(() => {
-    carregarAgendamentos();
-  }, [carregarAgendamentos]);
+    if (autenticado) {
+      carregarAgendamentos();
+    }
+  }, [carregarAgendamentos, autenticado]);
 
   // Cancelar/deletar agendamento
   const cancelarAgendamento = async (id: string) => {
@@ -131,6 +170,80 @@ export default function AgendaAdmin() {
   const celulasVazias = Array.from({ length: primeiroDia });
   const diasDoMes = Array.from({ length: diasNoMes }, (_, i) => i + 1);
 
+  // Carregamento inicial da verificação do localStorage
+  if (autenticado === null) {
+    return (
+      <div className="min-h-screen bg-[#0d0d0f] flex items-center justify-center">
+        <RefreshCw className="w-8 h-8 text-[#d4af37] animate-spin" />
+      </div>
+    );
+  }
+
+  // TELA DE BLOQUEIO / PIN
+  if (!autenticado) {
+    return (
+      <div className="min-h-screen bg-[#0d0d0f] text-gray-100 flex items-center justify-center p-4 font-sans">
+        <div className="w-full max-w-sm bg-[#141418] border border-[#26262e] rounded-3xl p-8 shadow-2xl space-y-6 text-center">
+          <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-[#d4af37] to-[#f3e5ab] flex items-center justify-center mx-auto shadow-lg shadow-[#d4af37]/20">
+            <Lock className="w-8 h-8 text-black" />
+          </div>
+
+          <div className="space-y-1">
+            <h1 className="text-xl font-black tracking-wider text-white uppercase flex items-center justify-center gap-2">
+              BLACK STAR <Sparkles className="w-4 h-4 text-[#d4af37]" />
+            </h1>
+            <p className="text-xs text-[#d4af37] font-semibold tracking-widest uppercase">Área Restrita do Barbeiro</p>
+            <p className="text-xs text-gray-400 pt-2">Digite o PIN de acesso para gerenciar os horários e agendamentos.</p>
+          </div>
+
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <input
+                type="password"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                maxLength={8}
+                value={pinInput}
+                onChange={(e) => {
+                  setPinInput(e.target.value);
+                  if (erroPin) setErroPin(false);
+                }}
+                placeholder="••••"
+                autoFocus
+                className={`w-full text-center tracking-[0.5em] font-mono text-2xl py-3 px-4 rounded-xl bg-[#0d0d0f] border ${
+                  erroPin
+                    ? 'border-red-500 text-red-400 focus:ring-red-500'
+                    : 'border-[#26262e] text-white focus:border-[#d4af37] focus:ring-[#d4af37]'
+                } outline-none focus:ring-1 transition`}
+              />
+              {erroPin && (
+                <p className="text-red-400 text-xs mt-2 flex items-center justify-center gap-1">
+                  <AlertTriangle className="w-3.5 h-3.5" /> PIN incorreto. Tente novamente.
+                </p>
+              )}
+            </div>
+
+            <button
+              type="submit"
+              className="w-full py-3 rounded-xl bg-gradient-to-r from-[#d4af37] to-[#b89728] text-black font-bold uppercase tracking-wider text-sm hover:opacity-95 active:scale-[0.98] transition shadow-lg shadow-[#d4af37]/20 flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <KeyRound className="w-4 h-4" /> Entrar no Painel
+            </button>
+          </form>
+
+          <div className="pt-2 border-t border-[#26262e]">
+            <Link
+              href="/"
+              className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-300 transition"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" /> Voltar para o site
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#0d0d0f] text-gray-100 flex flex-col font-sans">
 
@@ -149,13 +262,23 @@ export default function AgendaAdmin() {
             </div>
           </div>
 
-          <button
-            onClick={carregarAgendamentos}
-            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[#1c1c22] border border-[#2d2d38] text-gray-300 hover:text-[#d4af37] hover:border-[#d4af37] transition text-xs font-medium"
-          >
-            <RefreshCw className={`w-4 h-4 ${carregando ? 'animate-spin' : ''}`} />
-            Atualizar
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={carregarAgendamentos}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#1c1c22] border border-[#2d2d38] text-gray-300 hover:text-[#d4af37] hover:border-[#d4af37] transition text-xs font-medium cursor-pointer"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${carregando ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">Atualizar</span>
+            </button>
+            <button
+              onClick={handleLogout}
+              title="Bloquear painel / Sair"
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#1c1c22] border border-[#2d2d38] text-gray-400 hover:text-red-400 hover:border-red-900/50 transition text-xs font-medium cursor-pointer"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Sair</span>
+            </button>
+          </div>
         </div>
       </header>
 
