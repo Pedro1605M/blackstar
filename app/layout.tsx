@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Black Star Barber | Agendamento Online",
-  description: "Agende seu horário na Black Star Barber com o barbeiro Marcelo.",
+  description: "Agende seu horário na Black Star Barber com o barbeiro Marcelo. Rua Herminia Maria Vincentini, 58 - Jardim Marajó, Campinas - SP.",
 };
 
 export default function RootLayout({

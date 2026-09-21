@@ -172,6 +172,27 @@ export default function AgendaAdmin() {
     }
   }, [carregarDiasOcupadosNoMes, autenticado]);
 
+  // Escutar agendamentos em TEMPO REAL (atualiza sozinho quando um cliente agenda ou cancela)
+  useEffect(() => {
+    if (!autenticado) return;
+
+    const canal = supabase
+      .channel('realtime-agenda-admin')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'agendamentos' },
+        () => {
+          carregarAgendamentosDoDia();
+          carregarDiasOcupadosNoMes();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(canal);
+    };
+  }, [autenticado, carregarAgendamentosDoDia, carregarDiasOcupadosNoMes]);
+
   // Excluir agendamento
   const cancelarAgendamento = async (id: string) => {
     const { error } = await supabase
@@ -209,10 +230,33 @@ export default function AgendaAdmin() {
     setErroModal('');
 
     const [h, m] = novoHorario.split(':').map(Number);
-    const minFim = h * 60 + m + novoServico.duracao;
+    const minNovoInicio = h * 60 + m;
+    const minFim = minNovoInicio + novoServico.duracao;
     const horaFim = Math.floor(minFim / 60).toString().padStart(2, '0');
     const minFimStr = (minFim % 60).toString().padStart(2, '0');
     const horarioFim = `${horaFim}:${minFimStr}`;
+
+    // Checagem anti-conflito de horários
+    const { data: existentes } = await supabase
+      .from('agendamentos')
+      .select('horario_inicio, horario_fim')
+      .eq('data_agendamento', novaData);
+
+    if (existentes) {
+      const conflito = existentes.some((a) => {
+        const [aH, aM] = a.horario_inicio.split(':').map(Number);
+        const [fH, fM] = a.horario_fim.split(':').map(Number);
+        const aIni = aH * 60 + aM;
+        const aFim = fH * 60 + fM;
+        return minNovoInicio < aFim && minFim > aIni;
+      });
+
+      if (conflito) {
+        setSalvandoManual(false);
+        setErroModal('Atenção: Já existe outro agendamento ocupando esse mesmo horário nesta data.');
+        return;
+      }
+    }
 
     const { error } = await supabase
       .from('agendamentos')
@@ -259,7 +303,7 @@ export default function AgendaAdmin() {
     const dataFormatada = `${dia}/${mes}/${ano}`;
     const hora = a.horario_inicio.slice(0, 5);
 
-    const texto = `Olá *${a.cliente_nome}*! Tudo bem? Aqui é o barbeiro Marcelo da *Black Star Barber* 💈\n\nPassando para confirmar seu horário:\n📅 *Data:* ${dataFormatada}\n⏰ *Horário:* ${hora}\n✂️ *Serviço:* ${a.servico_nome} (R$ ${a.servico_preco},00)\n\nPodemos confirmar sua presença?`;
+    const texto = `Olá *${a.cliente_nome}*! Tudo bem? Aqui é o barbeiro Marcelo da *Black Star Barber* 💈\n\nPassando para confirmar seu horário:\n📅 *Data:* ${dataFormatada}\n⏰ *Horário:* ${hora}\n✂️ *Serviço:* ${a.servico_nome} (R$ ${a.servico_preco},00)\n📍 *Local:* Rua Herminia Maria Vincentini, 58 - Jardim Marajó, Campinas - SP\nhttps://maps.google.com/?q=Rua+Herminia+Maria+Vincentini+58+Campinas\n\nPodemos confirmar sua presença?`;
 
     const mensagem = encodeURIComponent(texto);
     window.open(`https://wa.me/55${numLimpo}?text=${mensagem}`, '_blank');
@@ -419,6 +463,12 @@ export default function AgendaAdmin() {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Indicador de Tempo Real */}
+            <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-950/40 border border-emerald-800/40 text-[11px] text-emerald-400 font-medium">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span>Tempo Real</span>
+            </div>
+
             {/* BOTÃO NOVO AGENDAMENTO */}
             <button
               onClick={abrirModalNovo}
@@ -731,11 +781,10 @@ export default function AgendaAdmin() {
                       </button>
                       <button
                         onClick={() => setConfirmDelete(a.id)}
-                        title="Remover agendamento"
-                        className="flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-zinc-800/60 hover:bg-red-950/40 border border-zinc-700/50 hover:border-red-900/50 text-zinc-400 hover:text-red-400 transition text-xs font-medium cursor-pointer"
+                        title="Cancelar agendamento"
+                        className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-950/40 hover:bg-red-900/60 border border-red-800/50 hover:border-red-700 text-red-300 hover:text-white transition text-xs font-medium cursor-pointer"
                       >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        <span className="sm:hidden">Cancelar</span>
+                        Cancelar agendamento
                       </button>
                     </div>
                   </div>

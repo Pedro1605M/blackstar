@@ -3,21 +3,33 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
-import { 
-  Scissors, 
-  Calendar as CalendarIcon, 
-  Clock, 
-  User, 
-  Phone, 
-  AlertTriangle, 
-  CheckCircle2, 
+import {
+  Scissors,
+  Calendar as CalendarIcon,
+  Clock,
+  User,
+  Phone,
+  AlertTriangle,
+  CheckCircle2,
   MapPin,
   ChevronLeft,
   ChevronRight,
   ShieldAlert,
   ArrowRight,
   Sparkles,
+  MessageSquare,
 } from 'lucide-react';
+
+// --- ENDEREÇO DA BARBEARIA ---
+export const ENDERECO_BARBEARIA = {
+  rua: 'Rua Herminia Maria Vincentini, 58',
+  bairro: 'Jardim Marajó',
+  cidadeUf: 'Campinas, SP',
+  cep: '13057-106',
+  completo: 'Rua Herminia Maria Vincentini, 58 - Jardim Marajó, Campinas - SP, 13057-106',
+  mapsUrl: 'https://www.google.com/maps/search/?api=1&query=Rua+Herminia+Maria+Vincentini%2C+58+-+Jardim+Maraj%C3%B3%2C+Campinas+-+SP%2C+13057-106',
+  wazeUrl: 'https://waze.com/ul?q=Rua+Herminia+Maria+Vincentini+58+Campinas',
+};
 
 // --- CONFIGURAÇÕES DO CALENDÁRIO ---
 const DIAS_SEMANA_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
@@ -27,30 +39,30 @@ const MESES_LABELS = [
 ];
 
 // ⚠️ NÚMERO DO WHATSAPP DO BARBEIRO (só números, com DDD)
-const WHATSAPP_BARBEIRO = '5511999999999';
+const WHATSAPP_BARBEIRO = '5519991718827';
 
 // --- SERVIÇOS DA BLACK STAR BARBER ---
 const SERVICOS = [
-  { 
-    id: 'corte', 
-    nome: 'Corte de Cabelo', 
-    preco: 45, 
-    duracao: 30, 
-    desc: 'Corte tesoura ou máquina com acabamento de alta precisão.' 
+  {
+    id: 'corte',
+    nome: 'Corte de Cabelo',
+    preco: 45,
+    duracao: 30,
+    desc: 'Corte tesoura ou máquina com acabamento de alta precisão.'
   },
-  { 
-    id: 'barba', 
-    nome: 'Barba Completa', 
-    preco: 40, 
-    duracao: 30, 
-    desc: 'Modelagem completa da barba com toalha quente, hidratação e navalha.' 
+  {
+    id: 'barba',
+    nome: 'Barba Completa',
+    preco: 40,
+    duracao: 30,
+    desc: 'Modelagem completa da barba com toalha quente, hidratação e navalha.'
   },
-  { 
-    id: 'corte-barba', 
-    nome: 'Corte + Barba', 
-    preco: 80, 
-    duracao: 60, 
-    desc: 'Combo completo de cabelo e barba com atendimento e finalização exclusiva.' 
+  {
+    id: 'corte-barba',
+    nome: 'Corte + Barba',
+    preco: 80,
+    duracao: 60,
+    desc: 'Combo completo de cabelo e barba com atendimento e finalização exclusiva.'
   }
 ];
 
@@ -79,7 +91,7 @@ export default function Home() {
   const [horarioInicio, setHorarioInicio] = useState('');
   const [nome, setNome] = useState('');
   const [telefone, setTelefone] = useState('');
-  
+
   const [agendamentosExistentes, setAgendamentosExistentes] = useState<any[]>([]);
   const [carregandoHorarios, setCarregandoHorarios] = useState(false);
   const [enviando, setEnviando] = useState(false);
@@ -137,6 +149,11 @@ export default function Home() {
 
     setDataSelecionada(dataStr);
     setHorarioInicio('');
+
+    // Rolar suavemente para a seção de horários no mobile
+    setTimeout(() => {
+      document.getElementById('secao-horarios')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 50);
   };
 
   // Atalhos de data
@@ -147,6 +164,9 @@ export default function Home() {
     if (diaSemana !== 0 && diaSemana !== 1) {
       setDataSelecionada(hojeStr);
       setHorarioInicio('');
+      setTimeout(() => {
+        document.getElementById('secao-horarios')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 50);
     }
   };
 
@@ -163,6 +183,9 @@ export default function Home() {
     if (diaSemana !== 0 && diaSemana !== 1) {
       setDataSelecionada(amanhaStr);
       setHorarioInicio('');
+      setTimeout(() => {
+        document.getElementById('secao-horarios')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 50);
     }
   };
 
@@ -205,6 +228,22 @@ export default function Home() {
     }
 
     carregarAgendamentos();
+
+    // Escutar em tempo real se alguém agendar para este mesmo dia
+    const canal = supabase
+      .channel(`realtime-cliente-${dataSelecionada}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'agendamentos', filter: `data_agendamento=eq.${dataSelecionada}` },
+        () => {
+          carregarAgendamentos();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(canal);
+    };
   }, [dataSelecionada]);
 
   // Converter horário "HH:MM" para minutos
@@ -262,7 +301,7 @@ export default function Home() {
   const handleTelefoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     let value = e.target.value.replace(/\D/g, '');
     if (value.length > 11) value = value.slice(0, 11);
-    
+
     if (value.length > 6) {
       value = `(${value.slice(0, 2)}) ${value.slice(2, 7)}-${value.slice(7)}`;
     } else if (value.length > 2) {
@@ -273,10 +312,26 @@ export default function Home() {
     setTelefone(value);
   };
 
-  // Confirmar agendamento
+  // Confirmar agendamento com trava anti-overbooking
   const handleConfirmarAgendamento = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!horarioInicio || !nome || !telefone || !dataSelecionada) return;
+
+    // Validação estrita de campos obrigatórios
+    if (!nome.trim() || nome.trim().length < 1) {
+      alert('Por favor, preencha o seu nome completo para prosseguir com o agendamento.');
+      return;
+    }
+
+    const digitosTelefone = telefone.replace(/\D/g, '');
+    if (!telefone.trim() || digitosTelefone.length < 10) {
+      alert('Por favor, informe um número de WhatsApp/telefone válido com DDD (mínimo 10 dígitos).');
+      return;
+    }
+
+    if (!horarioInicio || !dataSelecionada) {
+      alert('Por favor, escolha uma data e um horário disponível.');
+      return;
+    }
 
     setEnviando(true);
 
@@ -284,12 +339,41 @@ export default function Home() {
     const minFim = minInicio + servicoSelecionado.duracao;
     const horarioFim = minutesToTime(minFim);
 
+    // 1. CHECAGEM DE SEGURANÇA EM TEMPO REAL NO BANCO ANTES DE INSERIR
+    const { data: conflitosExistentes } = await supabase
+      .from('agendamentos')
+      .select('horario_inicio, horario_fim')
+      .eq('data_agendamento', dataSelecionada);
+
+    if (conflitosExistentes) {
+      const temConflito = conflitosExistentes.some((c) => {
+        const cIni = timeToMinutes(c.horario_inicio);
+        const cFim = timeToMinutes(c.horario_fim);
+        return minInicio < cFim && minFim > cIni;
+      });
+
+      if (temConflito) {
+        setEnviando(false);
+        alert('Atenção: Este horário acabou de ser reservado por outro cliente! Por favor, selecione outro horário livre.');
+
+        // Recarregar os horários da data imediatamente
+        const { data: recarregados } = await supabase
+          .from('agendamentos')
+          .select('horario_inicio, horario_fim, servico_duracao')
+          .eq('data_agendamento', dataSelecionada);
+        if (recarregados) setAgendamentosExistentes(recarregados);
+        setHorarioInicio('');
+        return;
+      }
+    }
+
+    // 2. INSERIR NO BANCO
     const { error } = await supabase
       .from('agendamentos')
       .insert([
         {
-          cliente_nome: nome,
-          cliente_telefone: telefone,
+          cliente_nome: nome.trim(),
+          cliente_telefone: telefone.trim(),
           servico_id: servicoSelecionado.id,
           servico_nome: servicoSelecionado.nome,
           servico_preco: servicoSelecionado.preco,
@@ -307,18 +391,38 @@ export default function Home() {
       return;
     }
 
-    const [ano, mes, dia] = dataSelecionada.split('-');
+    const [ano, mes, dia] = dataSelecionada.split('-').map(Number);
+    const dObj = new Date(ano, mes - 1, dia);
+    const diaSemanaFormatado = dObj.toLocaleDateString('pt-BR', { weekday: 'long' });
+    const diaSemanaCap = diaSemanaFormatado.charAt(0).toUpperCase() + diaSemanaFormatado.slice(1);
+
     const dadosFinal = {
-      nome,
-      telefone,
+      nome: nome.trim(),
+      telefone: telefone.trim(),
       servico: servicoSelecionado.nome,
       preco: servicoSelecionado.preco,
-      data: `${dia}/${mes}/${ano}`,
+      data: `${String(dia).padStart(2, '0')}/${String(mes).padStart(2, '0')}/${ano}`,
+      diaSemana: diaSemanaCap,
       horario: horarioInicio
     };
 
     setDadosComprovante(dadosFinal);
     setConcluido(true);
+  };
+
+  // Enviar comprovativo opcional pelo WhatsApp para o Marcelo
+  const abrirWhatsAppComprovante = () => {
+    if (!dadosComprovante) return;
+    const texto = `Olá Marcelo! Acabei de fazer um agendamento pelo site da *Black Star Barber* 💈:\n\n` +
+      `✂️ *Serviço:* ${dadosComprovante.servico}\n` +
+      `📅 *Data:* ${dadosComprovante.data} (${dadosComprovante.diaSemana})\n` +
+      `⏰ *Horário:* ${dadosComprovante.horario}h\n` +
+      `📍 *Local:* ${ENDERECO_BARBEARIA.completo}\n` +
+      `👤 *Cliente:* ${dadosComprovante.nome}\n` +
+      `📱 *Telefone:* ${dadosComprovante.telefone}\n\n` +
+      `Deixando registrado aqui no WhatsApp. Obrigado!`;
+    const mensagem = encodeURIComponent(texto);
+    window.open(`https://wa.me/${WHATSAPP_BARBEIRO}?text=${mensagem}`, '_blank');
   };
 
   // Formatar data completa para o cabeçalho do horário
@@ -337,10 +441,10 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col font-sans selection:bg-zinc-800 selection:text-zinc-100">
-      
+
       {/* HEADER EXECUTIVO */}
       <header className="border-b border-zinc-800/80 bg-zinc-900/60 backdrop-blur sticky top-0 z-40">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 py-3.5 flex items-center justify-between">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 py-3.5 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-lg bg-zinc-800 border border-zinc-700/70 flex items-center justify-center text-zinc-200">
               <Scissors className="w-4 h-4" />
@@ -352,32 +456,50 @@ export default function Home() {
           </div>
 
           <div className="flex items-center gap-2">
-            <a 
-              href="https://maps.google.com" 
-              target="_blank" 
+            <a
+              href={ENDERECO_BARBEARIA.mapsUrl}
+              target="_blank"
               rel="noreferrer"
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-zinc-200 transition text-xs font-medium"
-              title="Ver endereço no mapa"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 hover:text-white transition text-xs font-medium"
+              title={`Ver no Google Maps: ${ENDERECO_BARBEARIA.completo}`}
             >
-              <MapPin className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Localização</span>
+              <MapPin className="w-3.5 h-3.5 text-amber-400" />
+              <span className="hidden sm:inline">Jd. Marajó, Campinas</span>
+              <span className="sm:hidden">Localização</span>
             </a>
           </div>
         </div>
       </header>
 
       {/* CONTEÚDO PRINCIPAL */}
-      <main className="flex-1 max-w-3xl w-full mx-auto p-4 sm:p-6 space-y-8">
+      <main className="flex-1 max-w-4xl w-full mx-auto p-4 sm:p-6 space-y-8">
 
         {concluido ? (
           /* TELA DE CONFIRMAÇÃO / COMPROVANTE ELEGANTE */
           <div className="bg-zinc-900/70 border border-zinc-800/80 rounded-2xl p-6 sm:p-8 space-y-6 shadow-xl">
             <div className="text-center space-y-2">
-              <div className="w-12 h-12 rounded-xl bg-zinc-800 border border-zinc-700 flex items-center justify-center mx-auto text-emerald-400">
+              <div className="w-12 h-12 rounded-xl bg-emerald-950/60 border border-emerald-800/60 flex items-center justify-center mx-auto text-emerald-400">
                 <CheckCircle2 className="w-6 h-6" />
               </div>
-              <h2 className="text-xl font-semibold text-zinc-100 tracking-tight">Agendamento Confirmado</h2>
-              <p className="text-xs text-zinc-400">Seu horário está reservado com sucesso no sistema da barbearia.</p>
+              <h2 className="text-xl font-bold text-zinc-100 tracking-tight">Agendamento Confirmado!</h2>
+              <p className="text-sm text-zinc-300">
+                O teu horário das <strong className="text-amber-400">{dadosComprovante?.horario}h</strong> ({dadosComprovante?.diaSemana}) já está reservado.
+              </p>
+            </div>
+
+            {/* BOTÃO OPCIONAL: ENVIAR COMPROVATIVO POR WHATSAPP */}
+            <div className="bg-zinc-950 border border-zinc-800/80 rounded-xl p-4 sm:p-5 text-center space-y-3">
+              <p className="text-xs text-zinc-400 leading-relaxed max-w-md mx-auto">
+                (Opcional) Clica no botão abaixo para enviar um aviso rápido para o WhatsApp do Marcelo e guardar o teu comprovativo.
+              </p>
+              <button
+                type="button"
+                onClick={abrirWhatsAppComprovante}
+                className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-xs transition active:scale-[0.99] cursor-pointer shadow-lg shadow-emerald-950/40"
+              >
+                <MessageSquare className="w-4 h-4" />
+                <span>Enviar Comprovativo por WhatsApp</span>
+              </button>
             </div>
 
             {/* Dados do Comprovante */}
@@ -401,6 +523,18 @@ export default function Home() {
               <div className="flex justify-between pb-2.5 border-b border-zinc-800/60">
                 <span className="text-zinc-500">Horário</span>
                 <span className="font-medium text-zinc-200">{dadosComprovante?.horario}h</span>
+              </div>
+              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center pb-2.5 border-b border-zinc-800/60 gap-1">
+                <span className="text-zinc-500">Endereço</span>
+                <a
+                  href={ENDERECO_BARBEARIA.mapsUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-medium text-zinc-200 hover:text-amber-400 flex items-center gap-1 transition sm:text-right underline-offset-2 hover:underline"
+                >
+                  <MapPin className="w-3 h-3 text-amber-400 shrink-0" />
+                  <span>{ENDERECO_BARBEARIA.completo}</span>
+                </a>
               </div>
               <div className="flex justify-between pt-1">
                 <span className="text-zinc-400 font-medium">Valor Total</span>
@@ -461,11 +595,10 @@ export default function Home() {
                         setServicoSelecionado(s);
                         setHorarioInicio('');
                       }}
-                      className={`cursor-pointer p-4 rounded-xl border transition-all ${
-                        selected
-                          ? 'bg-zinc-900 border-zinc-500 ring-1 ring-zinc-500'
-                          : 'bg-zinc-900/60 border-zinc-800/80 hover:border-zinc-700'
-                      }`}
+                      className={`cursor-pointer p-4 rounded-xl border transition-all ${selected
+                        ? 'bg-zinc-900 border-zinc-500 ring-1 ring-zinc-500'
+                        : 'bg-zinc-900/60 border-zinc-800/80 hover:border-zinc-700'
+                        }`}
                     >
                       <div className="flex justify-between items-start mb-1.5">
                         <h3 className="font-semibold text-zinc-100 text-sm">{s.nome}</h3>
@@ -481,52 +614,56 @@ export default function Home() {
               </div>
             </div>
 
-            {/* ETAPA 2: CALENDÁRIO COM NAVEGAÇÃO FLUIDA DE MÊS E ANO */}
+            {/* ETAPA 2 & 3: ESCOLHA DE DATA E HORÁRIO INTEGRADOS (LADO A LADO NO DESKTOP, FLUIDO NO CELULAR) */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <label className="text-xs font-semibold uppercase tracking-wider text-zinc-400 flex items-center gap-2">
-                  <CalendarIcon className="w-3.5 h-3.5 text-zinc-400" /> 2. Escolha a Data
+                  <CalendarIcon className="w-3.5 h-3.5 text-zinc-400" /> 2. Escolha Data e Horário
                 </label>
                 {dataSelecionada && (
-                  <span className="text-xs font-medium text-zinc-300">
-                    {dataSelecionada.split('-').reverse().join('/')}
+                  <span className="text-xs font-medium text-amber-400">
+                    {dataSelecionada.split('-').reverse().join('/')} {horarioInicio ? `às ${horarioInicio}h` : ''}
                   </span>
                 )}
               </div>
 
-              <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-2xl p-4 sm:p-5 space-y-4">
-                
-                {/* BARRA DE NAVEGAÇÃO FLUIDA DO MÊS */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  
-                  {/* Dropdowns Diretos de Mês e Ano */}
-                  <div className="flex items-center gap-2">
-                    <select
-                      value={calMonth}
-                      onChange={(e) => setCalMonth(Number(e.target.value))}
-                      className="bg-zinc-950 border border-zinc-800 text-zinc-200 text-xs font-medium py-1.5 px-2.5 rounded-lg outline-none focus:border-zinc-600 cursor-pointer"
-                    >
-                      {MESES_LABELS.map((mes, idx) => (
-                        <option key={mes} value={idx}>
-                          {mes}
-                        </option>
-                      ))}
-                    </select>
+              <div className="grid grid-cols-1 lg:grid-cols-[330px_1fr] gap-4 items-start">
 
-                    <select
-                      value={calYear}
-                      onChange={(e) => setCalYear(Number(e.target.value))}
-                      className="bg-zinc-950 border border-zinc-800 text-zinc-200 text-xs font-medium py-1.5 px-2.5 rounded-lg outline-none focus:border-zinc-600 cursor-pointer"
-                    >
-                      {anosDisponiveis.map((ano) => (
-                        <option key={ano} value={ano}>
-                          {ano}
-                        </option>
-                      ))}
-                    </select>
+                {/* CALENDÁRIO VISUAL */}
+                <div className="bg-zinc-900/60 border border-zinc-800/80 rounded-2xl p-4 sm:p-5 space-y-4">
+
+                  {/* BARRA DE NAVEGAÇÃO FLUIDA DO MÊS */}
+                  <div className="flex items-center justify-between gap-2">
+
+                    {/* Dropdowns Diretos de Mês e Ano */}
+                    <div className="flex items-center gap-1.5 flex-1">
+                      <select
+                        value={calMonth}
+                        onChange={(e) => setCalMonth(Number(e.target.value))}
+                        className="bg-zinc-950 border border-zinc-800 text-zinc-200 text-xs font-medium py-1.5 px-2.5 rounded-lg outline-none focus:border-zinc-600 cursor-pointer"
+                      >
+                        {MESES_LABELS.map((mes, idx) => (
+                          <option key={mes} value={idx}>
+                            {mes}
+                          </option>
+                        ))}
+                      </select>
+
+                      <select
+                        value={calYear}
+                        onChange={(e) => setCalYear(Number(e.target.value))}
+                        className="bg-zinc-950 border border-zinc-800 text-zinc-200 text-xs font-medium py-1.5 px-2.5 rounded-lg outline-none focus:border-zinc-600 cursor-pointer"
+                      >
+                        {anosDisponiveis.map((ano) => (
+                          <option key={ano} value={ano}>
+                            {ano}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
 
                     {/* Setas discretas para 1 clique */}
-                    <div className="flex items-center gap-1 ml-1">
+                    <div className="flex items-center gap-1">
                       <button
                         type="button"
                         onClick={irMesAnterior}
@@ -552,141 +689,164 @@ export default function Home() {
                     <button
                       type="button"
                       onClick={irParaHoje}
-                      className="py-1 px-3 rounded-lg text-xs font-medium border bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition cursor-pointer"
+                      className="flex-1 py-1 px-3 rounded-lg text-xs font-medium border bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition cursor-pointer"
                     >
                       Hoje
                     </button>
                     <button
                       type="button"
                       onClick={irParaAmanha}
-                      className="py-1 px-3 rounded-lg text-xs font-medium border bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition cursor-pointer"
+                      className="flex-1 py-1 px-3 rounded-lg text-xs font-medium border bg-zinc-950 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition cursor-pointer"
                     >
                       Amanhã
                     </button>
                   </div>
-                </div>
 
-                {/* Cabeçalho dos Dias da Semana */}
-                <div className="grid grid-cols-7 text-center">
-                  {DIAS_SEMANA_LABELS.map((d, i) => (
-                    <span 
-                      key={d} 
-                      className={`text-[11px] font-medium py-1 ${
-                        i === 0 || i === 1 ? 'text-zinc-600' : 'text-zinc-400'
-                      }`}
-                    >
-                      {d}
-                    </span>
-                  ))}
-                </div>
-
-                {/* Grade de Dias */}
-                <div className="grid grid-cols-7 gap-1">
-                  {celulasVazias.map((_, i) => (
-                    <div key={`vazio-${i}`} className="aspect-square" />
-                  ))}
-                  {diasDoMes.map((dia) => {
-                    const desabilitado = isDiaDesabilitado(dia);
-                    const selecionado = isDiaSelecionado(dia);
-                    const hoje_ = isHojeDia(dia);
-
-                    return (
-                      <button
-                        key={dia}
-                        type="button"
-                        disabled={desabilitado}
-                        onClick={() => selecionarDia(dia)}
-                        className={`aspect-square flex flex-col items-center justify-center rounded-lg text-xs font-medium transition ${
-                          desabilitado
-                            ? 'text-zinc-700 cursor-not-allowed'
-                            : selecionado
-                            ? 'bg-zinc-100 text-zinc-950 font-bold shadow-sm cursor-pointer'
-                            : hoje_
-                            ? 'border border-amber-500/50 text-amber-400 hover:bg-zinc-800 cursor-pointer'
-                            : 'hover:bg-zinc-800 text-zinc-300 cursor-pointer'
-                        }`}
+                  {/* Cabeçalho dos Dias da Semana */}
+                  <div className="grid grid-cols-7 text-center">
+                    {DIAS_SEMANA_LABELS.map((d, i) => (
+                      <span
+                        key={d}
+                        className={`text-[11px] font-medium py-1 ${i === 0 || i === 1 ? 'text-zinc-600' : 'text-zinc-400'
+                          }`}
                       >
-                        {dia}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* Legenda Informativa */}
-                <div className="pt-2.5 border-t border-zinc-800/60 flex flex-wrap items-center gap-4 text-[11px] text-zinc-500">
-                  <span className="flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded bg-zinc-100 inline-block" /> Selecionado
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <span className="w-2.5 h-2.5 rounded border border-amber-500/50 inline-block" /> Hoje
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <span className="text-zinc-700 font-bold text-xs">✕</span> Dom/Seg fechado
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* ETAPA 3: HORÁRIOS DISPONÍVEIS */}
-            {dataSelecionada && (
-              <div className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <label className="text-xs font-semibold uppercase tracking-wider text-zinc-400 flex items-center gap-2">
-                    <Clock className="w-3.5 h-3.5 text-zinc-400" /> 3. Horários em {formatarDataCompleta(dataSelecionada)}
-                  </label>
-                  <span className="text-xs text-zinc-500 font-medium">
-                    {servicoSelecionado.duracao === 60 ? 'Duração: 1h' : 'Duração: 30 min'}
-                  </span>
-                </div>
-
-                {carregandoHorarios ? (
-                  <div className="p-8 text-center text-zinc-500 text-xs">Verificando horários livres...</div>
-                ) : slotsDisponiveis.length === 0 ? (
-                  <div className="p-6 bg-zinc-900/60 border border-zinc-800/80 rounded-xl text-center text-xs text-zinc-400">
-                    A barbearia está fechada ou todos os horários já foram preenchidos para esta data.
+                        {d}
+                      </span>
+                    ))}
                   </div>
-                ) : (
-                  <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
-                    {slotsDisponiveis.map((slot) => {
-                      const selecionado = horarioInicio === slot.horario;
+
+                  {/* Grade de Dias */}
+                  <div className="grid grid-cols-7 gap-1">
+                    {celulasVazias.map((_, i) => (
+                      <div key={`vazio-${i}`} className="aspect-square" />
+                    ))}
+                    {diasDoMes.map((dia) => {
+                      const desabilitado = isDiaDesabilitado(dia);
+                      const selecionado = isDiaSelecionado(dia);
+                      const hoje_ = isHojeDia(dia);
+
                       return (
                         <button
-                          key={slot.horario}
+                          key={dia}
                           type="button"
-                          disabled={!slot.disponivel}
-                          onClick={() => setHorarioInicio(slot.horario)}
-                          className={`py-2.5 px-2 rounded-lg text-xs font-medium transition border cursor-pointer ${
-                            !slot.disponivel
-                              ? 'bg-zinc-950 border-zinc-900 text-zinc-700 line-through cursor-not-allowed'
-                              : selecionado
-                              ? 'bg-zinc-100 border-zinc-100 text-zinc-950 font-bold shadow-sm'
-                              : 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:border-zinc-700 hover:text-zinc-100'
-                          }`}
+                          disabled={desabilitado}
+                          onClick={() => selecionarDia(dia)}
+                          className={`aspect-square flex flex-col items-center justify-center rounded-lg text-xs font-medium transition ${desabilitado
+                            ? 'text-zinc-700 cursor-not-allowed'
+                            : selecionado
+                              ? 'bg-zinc-100 text-zinc-950 font-bold shadow-sm cursor-pointer'
+                              : hoje_
+                                ? 'border border-amber-500/50 text-amber-400 hover:bg-zinc-800 cursor-pointer'
+                                : 'hover:bg-zinc-800 text-zinc-300 cursor-pointer'
+                            }`}
                         >
-                          {slot.horario}
+                          {dia}
                         </button>
                       );
                     })}
                   </div>
-                )}
+
+                  {/* Legenda Informativa */}
+                  <div className="pt-2.5 border-t border-zinc-800/60 flex flex-wrap items-center gap-4 text-[11px] text-zinc-500">
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded bg-zinc-100 inline-block" /> Selecionado
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-2.5 h-2.5 rounded border border-amber-500/50 inline-block" /> Hoje
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="text-zinc-700 font-bold text-xs">✕</span> Fechado
+                    </span>
+                  </div>
+                </div>
+
+                {/* HORÁRIOS DISPONÍVEIS (SEÇÃO ACESSADA DIRETAMENTE AO SELECIONAR A DATA) */}
+                <div
+                  id="secao-horarios"
+                  className="bg-zinc-900/60 border border-zinc-800/80 rounded-2xl p-4 sm:p-5 space-y-4 min-h-[300px] flex flex-col justify-start"
+                >
+                  {!dataSelecionada ? (
+                    <div className="flex-1 flex flex-col items-center justify-center text-center p-6 text-zinc-500 space-y-2">
+                      <Clock className="w-8 h-8 text-zinc-700 mx-auto" />
+                      <p className="text-xs font-medium text-zinc-300">Escolha uma data no calendário</p>
+                      <p className="text-[11px] text-zinc-500 max-w-[220px]">
+                        Os horários disponíveis aparecerão aqui instantaneamente.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-center pb-2 border-b border-zinc-800/60">
+                        <div>
+                          <p className="text-xs font-semibold text-zinc-100 capitalize">
+                            {formatarDataCompleta(dataSelecionada)}
+                          </p>
+                          <p className="text-[11px] text-zinc-400">
+                            {servicoSelecionado.duracao === 60 ? 'Duração: 1h livre' : 'Duração: 30 min'}
+                          </p>
+                        </div>
+                        {horarioInicio && (
+                          <span className="text-xs font-medium text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded-md border border-amber-400/20">
+                            {horarioInicio}h escolhido
+                          </span>
+                        )}
+                      </div>
+
+                      {carregandoHorarios ? (
+                        <div className="py-12 text-center text-zinc-500 text-xs">Verificando horários livres...</div>
+                      ) : slotsDisponiveis.length === 0 ? (
+                        <div className="py-8 text-center text-xs text-zinc-400 bg-zinc-950/60 rounded-xl p-4 border border-zinc-800">
+                          A barbearia está fechada ou todos os horários já foram preenchidos para esta data.
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                          {slotsDisponiveis.map((slot) => {
+                            const selecionado = horarioInicio === slot.horario;
+                            return (
+                              <button
+                                key={slot.horario}
+                                type="button"
+                                disabled={!slot.disponivel}
+                                onClick={() => {
+                                  setHorarioInicio(slot.horario);
+                                  setTimeout(() => {
+                                    document.getElementById('secao-confirmacao')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                  }, 60);
+                                }}
+                                className={`py-2.5 px-2 rounded-lg text-xs font-medium transition border cursor-pointer ${!slot.disponivel
+                                  ? 'bg-zinc-950 border-zinc-900 text-zinc-700 line-through cursor-not-allowed'
+                                  : selecionado
+                                    ? 'bg-zinc-100 border-zinc-100 text-zinc-950 font-bold shadow-sm'
+                                    : 'bg-zinc-900 border-zinc-800 text-zinc-300 hover:border-zinc-700 hover:text-zinc-100'
+                                  }`}
+                              >
+                                {slot.horario}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
               </div>
-            )}
+            </div>
 
             {/* ETAPA 4: DADOS DO CLIENTE E CONFIRMAÇÃO */}
             {horarioInicio && (
-              <div className="space-y-4 bg-zinc-900/60 border border-zinc-800/80 rounded-2xl p-5">
+              <div id="secao-confirmacao" className="space-y-4 bg-zinc-900/60 border border-zinc-800/80 rounded-2xl p-5">
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-300">
                   4. Informações para Confirmação
                 </h3>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="text-xs text-zinc-400 block mb-1 font-medium">Nome Completo</label>
+                    <label className="text-xs text-zinc-400 block mb-1 font-medium">Nome Completo *</label>
                     <div className="relative">
                       <User className="w-4 h-4 text-zinc-500 absolute left-3 top-3" />
                       <input
                         type="text"
-                        placeholder="Seu nome"
+                        placeholder="Ex: João da Silva"
                         value={nome}
                         onChange={(e) => setNome(e.target.value)}
                         className="w-full bg-zinc-950 border border-zinc-800 rounded-xl pl-9 pr-3 py-2.5 text-zinc-100 focus:outline-none focus:border-zinc-600 text-xs transition"
@@ -696,7 +856,7 @@ export default function Home() {
                   </div>
 
                   <div>
-                    <label className="text-xs text-zinc-400 block mb-1 font-medium">WhatsApp</label>
+                    <label className="text-xs text-zinc-400 block mb-1 font-medium">WhatsApp / Telefone *</label>
                     <div className="relative">
                       <Phone className="w-4 h-4 text-zinc-500 absolute left-3 top-3" />
                       <input
