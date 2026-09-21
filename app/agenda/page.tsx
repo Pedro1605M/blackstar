@@ -15,8 +15,6 @@ import {
   MessageSquare,
   Trash2,
   AlertTriangle,
-  Lock,
-  LogOut,
   ArrowLeft,
   DollarSign,
   CalendarDays,
@@ -65,11 +63,6 @@ export default function AgendaAdmin() {
   const today = new Date();
   const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 
-  // Autenticação
-  const [autenticado, setAutenticado] = useState<boolean | null>(null);
-  const [pinInput, setPinInput] = useState('');
-  const [erroPin, setErroPin] = useState(false);
-
   // Navegação de Data
   const [calYear, setCalYear] = useState(today.getFullYear());
   const [calMonth, setCalMonth] = useState(today.getMonth());
@@ -98,30 +91,6 @@ export default function AgendaAdmin() {
     today.getFullYear() + 1,
     today.getFullYear() + 2,
   ];
-
-  // Checar login salvo
-  useEffect(() => {
-    const salvo = typeof window !== 'undefined' ? localStorage.getItem('blackstar_admin_auth') : null;
-    setAutenticado(salvo === 'true');
-  }, []);
-
-  const handleLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (pinInput.trim() === ADMIN_PIN) {
-      localStorage.setItem('blackstar_admin_auth', 'true');
-      setAutenticado(true);
-      setErroPin(false);
-      setPinInput('');
-    } else {
-      setErroPin(true);
-    }
-  };
-
-  const handleLogout = () => {
-    localStorage.removeItem('blackstar_admin_auth');
-    setAutenticado(false);
-    setPinInput('');
-  };
 
   // Buscar agendamentos do dia selecionado
   const carregarAgendamentosDoDia = useCallback(async () => {
@@ -161,21 +130,15 @@ export default function AgendaAdmin() {
   }, [calYear, calMonth]);
 
   useEffect(() => {
-    if (autenticado) {
-      carregarAgendamentosDoDia();
-    }
-  }, [carregarAgendamentosDoDia, autenticado]);
+    carregarAgendamentosDoDia();
+  }, [carregarAgendamentosDoDia]);
 
   useEffect(() => {
-    if (autenticado) {
-      carregarDiasOcupadosNoMes();
-    }
-  }, [carregarDiasOcupadosNoMes, autenticado]);
+    carregarDiasOcupadosNoMes();
+  }, [carregarDiasOcupadosNoMes]);
 
   // Escutar agendamentos em TEMPO REAL (atualiza sozinho quando um cliente agenda ou cancela)
   useEffect(() => {
-    if (!autenticado) return;
-
     const canal = supabase
       .channel('realtime-agenda-admin')
       .on(
@@ -191,7 +154,7 @@ export default function AgendaAdmin() {
     return () => {
       supabase.removeChannel(canal);
     };
-  }, [autenticado, carregarAgendamentosDoDia, carregarDiasOcupadosNoMes]);
+  }, [carregarAgendamentosDoDia, carregarDiasOcupadosNoMes]);
 
   // Excluir agendamento
   const cancelarAgendamento = async (id: string) => {
@@ -372,79 +335,6 @@ export default function AgendaAdmin() {
   const faturamentoTotalDia = agendamentos.reduce((acc, a) => acc + Number(a.servico_preco || 0), 0);
   const primeiroHorario = agendamentos.length > 0 ? agendamentos[0].horario_inicio.slice(0, 5) : null;
 
-  // Carregamento inicial de verificação de autenticação
-  if (autenticado === null) {
-    return (
-      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
-        <RefreshCw className="w-6 h-6 text-zinc-500 animate-spin" />
-      </div>
-    );
-  }
-
-  // TELA DE AUTENTICAÇÃO / PIN SÓBRIA E PROFISSIONAL
-  if (!autenticado) {
-    return (
-      <div className="min-h-screen bg-zinc-950 text-zinc-100 flex items-center justify-center p-4">
-        <div className="w-full max-w-sm bg-zinc-900 border border-zinc-800 rounded-2xl p-8 shadow-xl space-y-6">
-          <div className="text-center space-y-2">
-            <div className="w-12 h-12 rounded-xl bg-zinc-800 border border-zinc-700/80 flex items-center justify-center mx-auto text-zinc-300">
-              <Lock className="w-5 h-5" />
-            </div>
-            <h1 className="text-lg font-semibold text-zinc-100 tracking-tight">Black Star Barber</h1>
-            <p className="text-xs text-zinc-400">Painel Administrativo do Barbeiro</p>
-          </div>
-
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div>
-              <label className="block text-xs font-medium text-zinc-400 mb-2">
-                PIN de Segurança
-              </label>
-              <input
-                type="password"
-                inputMode="numeric"
-                pattern="[0-9]*"
-                maxLength={8}
-                value={pinInput}
-                onChange={(e) => {
-                  setPinInput(e.target.value);
-                  if (erroPin) setErroPin(false);
-                }}
-                placeholder="••••"
-                autoFocus
-                className={`w-full text-center tracking-[0.4em] font-mono text-xl py-2.5 px-4 rounded-xl bg-zinc-950 border ${
-                  erroPin
-                    ? 'border-red-500 text-red-400 focus:ring-red-500'
-                    : 'border-zinc-800 text-zinc-100 focus:border-zinc-500 focus:ring-1 focus:ring-zinc-500'
-                } outline-none transition`}
-              />
-              {erroPin && (
-                <p className="text-red-400 text-xs mt-2 flex items-center justify-center gap-1">
-                  <AlertTriangle className="w-3.5 h-3.5" /> PIN incorreto. Tente novamente.
-                </p>
-              )}
-            </div>
-
-            <button
-              type="submit"
-              className="w-full py-2.5 rounded-xl bg-zinc-100 hover:bg-white text-zinc-900 font-medium text-sm transition active:scale-[0.99] cursor-pointer"
-            >
-              Acessar Painel
-            </button>
-          </form>
-
-          <div className="pt-4 border-t border-zinc-800/80 text-center">
-            <Link
-              href="/"
-              className="inline-flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition"
-            >
-              <ArrowLeft className="w-3.5 h-3.5" /> Voltar ao site
-            </Link>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   // PAINEL ADMINISTRATIVO PROFISSIONAL
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col font-sans selection:bg-zinc-800 selection:text-zinc-100">
@@ -489,14 +379,14 @@ export default function AgendaAdmin() {
               <RefreshCw className={`w-3.5 h-3.5 ${carregando ? 'animate-spin text-zinc-400' : ''}`} />
               <span className="hidden sm:inline">Atualizar</span>
             </button>
-            <button
-              onClick={handleLogout}
-              title="Bloquear painel"
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-red-950/40 border border-zinc-800 hover:border-red-900/50 text-zinc-400 hover:text-red-400 transition text-xs font-medium cursor-pointer"
+            <Link
+              href="/"
+              title="Voltar ao site principal"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-zinc-200 transition text-xs font-medium"
             >
-              <LogOut className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Sair</span>
-            </button>
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Voltar ao site</span>
+            </Link>
           </div>
         </div>
       </header>
