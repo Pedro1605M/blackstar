@@ -21,6 +21,8 @@ import {
   DollarSign,
   CalendarDays,
   CheckCircle2,
+  Plus,
+  X,
 } from 'lucide-react';
 
 // --- CONFIGURAÇÕES ---
@@ -28,6 +30,21 @@ const DIAS_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 const MESES = [
   'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
   'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
+];
+
+// Serviços cadastrados na barbearia
+const SERVICOS = [
+  { id: 'corte', nome: 'Corte de Cabelo', preco: 45, duracao: 30 },
+  { id: 'barba', nome: 'Barba Completa', preco: 40, duracao: 30 },
+  { id: 'corte-barba', nome: 'Corte + Barba', preco: 80, duracao: 60 },
+];
+
+// Grade horária para agendamento manual
+const HORARIOS_DISPONIVEIS_PADRAO = [
+  '08:00', '08:30', '09:00', '09:30', '10:00', '10:30',
+  '11:00', '11:30', '12:00', '12:30', '13:00', '13:30',
+  '14:00', '14:30', '15:00', '15:30', '16:00', '16:30',
+  '17:00', '17:30', '18:00', '18:30', '19:00', '19:30',
 ];
 
 // PIN de acesso do barbeiro (configurável no .env.local via NEXT_PUBLIC_ADMIN_PIN)
@@ -63,6 +80,16 @@ export default function AgendaAdmin() {
   const [diasComAgendamento, setDiasComAgendamento] = useState<Set<string>>(new Set());
   const [carregando, setCarregando] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+
+  // Modal de Agendamento Manual
+  const [modalNovoAberto, setModalNovoAberto] = useState(false);
+  const [novoNome, setNovoNome] = useState('');
+  const [novoTelefone, setNovoTelefone] = useState('');
+  const [novoServico, setNovoServico] = useState(SERVICOS[0]);
+  const [novaData, setNovaData] = useState(todayStr);
+  const [novoHorario, setNovoHorario] = useState('09:30');
+  const [salvandoManual, setSalvandoManual] = useState(false);
+  const [erroModal, setErroModal] = useState('');
 
   // Anos disponíveis para seleção rápida no dropdown
   const anosDisponiveis = [
@@ -159,6 +186,72 @@ export default function AgendaAdmin() {
     setConfirmDelete(null);
   };
 
+  // Abrir modal de novo agendamento manual
+  const abrirModalNovo = () => {
+    setNovaData(dataSelecionada);
+    setNovoNome('');
+    setNovoTelefone('');
+    setNovoServico(SERVICOS[0]);
+    setNovoHorario('09:30');
+    setErroModal('');
+    setModalNovoAberto(true);
+  };
+
+  // Salvar novo agendamento manual
+  const salvarNovoAgendamento = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!novoNome.trim()) {
+      setErroModal('Por favor, informe o nome do cliente.');
+      return;
+    }
+
+    setSalvandoManual(true);
+    setErroModal('');
+
+    const [h, m] = novoHorario.split(':').map(Number);
+    const minFim = h * 60 + m + novoServico.duracao;
+    const horaFim = Math.floor(minFim / 60).toString().padStart(2, '0');
+    const minFimStr = (minFim % 60).toString().padStart(2, '0');
+    const horarioFim = `${horaFim}:${minFimStr}`;
+
+    const { error } = await supabase
+      .from('agendamentos')
+      .insert([
+        {
+          cliente_nome: novoNome.trim(),
+          cliente_telefone: novoTelefone.trim() || '(Não informado)',
+          servico_id: novoServico.id,
+          servico_nome: novoServico.nome,
+          servico_preco: novoServico.preco,
+          servico_duracao: novoServico.duracao,
+          data_agendamento: novaData,
+          horario_inicio: novoHorario,
+          horario_fim: horarioFim,
+        },
+      ]);
+
+    setSalvandoManual(false);
+
+    if (error) {
+      setErroModal('Erro ao salvar agendamento: ' + error.message);
+      return;
+    }
+
+    // Se salvou na data que já está selecionada, recarrega o dia
+    if (novaData === dataSelecionada) {
+      carregarAgendamentosDoDia();
+    } else {
+      // Muda para a data do agendamento para o barbeiro ver imediatamente
+      setDataSelecionada(novaData);
+      const [aAno, aMes] = novaData.split('-').map(Number);
+      setCalYear(aAno);
+      setCalMonth(aMes - 1);
+    }
+
+    carregarDiasOcupadosNoMes();
+    setModalNovoAberto(false);
+  };
+
   // Enviar lembrete via WhatsApp
   const abrirWhatsApp = (a: Agendamento) => {
     const numLimpo = a.cliente_telefone.replace(/\D/g, '');
@@ -172,7 +265,7 @@ export default function AgendaAdmin() {
     window.open(`https://wa.me/55${numLimpo}?text=${mensagem}`, '_blank');
   };
 
-  // Formatar data por extenso (ex: Segunda-feira, 21 de Setembro de 2026)
+  // Formatar data por extenso
   const formatarDataExtenso = (dataIso: string) => {
     if (!dataIso) return '';
     const [ano, mes, dia] = dataIso.split('-').map(Number);
@@ -326,13 +419,22 @@ export default function AgendaAdmin() {
           </div>
 
           <div className="flex items-center gap-2">
+            {/* BOTÃO NOVO AGENDAMENTO */}
+            <button
+              onClick={abrirModalNovo}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-100 hover:bg-white text-zinc-950 font-medium text-xs transition cursor-pointer shadow-sm active:scale-[0.98]"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Novo Agendamento</span>
+            </button>
+
             <button
               onClick={() => {
                 carregarAgendamentosDoDia();
                 carregarDiasOcupadosNoMes();
               }}
               title="Recarregar dados"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 transition text-xs font-medium cursor-pointer"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 transition text-xs font-medium cursor-pointer"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${carregando ? 'animate-spin text-zinc-400' : ''}`} />
               <span className="hidden sm:inline">Atualizar</span>
@@ -340,7 +442,7 @@ export default function AgendaAdmin() {
             <button
               onClick={handleLogout}
               title="Bloquear painel"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-red-950/40 border border-zinc-800 hover:border-red-900/50 text-zinc-400 hover:text-red-400 transition text-xs font-medium cursor-pointer"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-zinc-900 hover:bg-red-950/40 border border-zinc-800 hover:border-red-900/50 text-zinc-400 hover:text-red-400 transition text-xs font-medium cursor-pointer"
             >
               <LogOut className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Sair</span>
@@ -503,7 +605,6 @@ export default function AgendaAdmin() {
                     }`}
                   >
                     <span>{dia}</span>
-                    {/* Indicador sutil de agendamentos no dia */}
                     {temAgendamento && (
                       <span
                         className={`w-1 h-1 rounded-full absolute bottom-1.5 ${
@@ -541,12 +642,20 @@ export default function AgendaAdmin() {
                 </p>
               </div>
 
-              {agendamentos.length > 0 && (
-                <div className="flex items-center gap-1.5 text-xs text-zinc-400">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-zinc-500" />
-                  <span>{agendamentos.length} horários ocupados</span>
-                </div>
-              )}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={abrirModalNovo}
+                  className="sm:hidden flex items-center gap-1 px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium"
+                >
+                  <Plus className="w-3 h-3" /> Adicionar
+                </button>
+                {agendamentos.length > 0 && (
+                  <div className="flex items-center gap-1.5 text-xs text-zinc-400">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-zinc-500" />
+                    <span>{agendamentos.length} horários</span>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* CONTEÚDO DOS AGENDAMENTOS */}
@@ -556,12 +665,20 @@ export default function AgendaAdmin() {
                 Carregando horários...
               </div>
             ) : agendamentos.length === 0 ? (
-              <div className="py-16 text-center bg-zinc-900/40 border border-zinc-800/60 rounded-2xl space-y-2">
+              <div className="py-16 text-center bg-zinc-900/40 border border-zinc-800/60 rounded-2xl space-y-3">
                 <CalendarIcon className="w-8 h-8 text-zinc-700 mx-auto" />
-                <p className="text-sm font-medium text-zinc-400">Sem agendamentos nesta data</p>
-                <p className="text-xs text-zinc-600 max-w-xs mx-auto">
-                  Os agendamentos feitos pelos clientes no site aparecerão aqui automaticamente.
-                </p>
+                <div className="space-y-1">
+                  <p className="text-sm font-medium text-zinc-400">Sem agendamentos nesta data</p>
+                  <p className="text-xs text-zinc-600 max-w-xs mx-auto">
+                    Nenhum cliente marcado para este dia.
+                  </p>
+                </div>
+                <button
+                  onClick={abrirModalNovo}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium transition cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Adicionar horário manualmente
+                </button>
               </div>
             ) : (
               <div className="space-y-3">
@@ -628,6 +745,144 @@ export default function AgendaAdmin() {
           </div>
         </div>
       </main>
+
+      {/* MODAL DE NOVO AGENDAMENTO MANUAL */}
+      {modalNovoAberto && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-zinc-800 border border-zinc-700 flex items-center justify-center text-zinc-200">
+                  <CalendarDays className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-zinc-100 text-base">Novo Agendamento</h3>
+                  <p className="text-xs text-zinc-400">Cadastre diretamente na agenda</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setModalNovoAberto(false)}
+                className="text-zinc-500 hover:text-zinc-300 transition p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={salvarNovoAgendamento} className="space-y-4 text-xs">
+              {/* Nome do Cliente */}
+              <div>
+                <label className="block text-zinc-400 font-medium mb-1">Nome do Cliente *</label>
+                <div className="relative">
+                  <User className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-3" />
+                  <input
+                    type="text"
+                    placeholder="Ex: Carlos Ferreira"
+                    value={novoNome}
+                    onChange={(e) => setNovoNome(e.target.value)}
+                    required
+                    autoFocus
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl pl-9 pr-3 py-2.5 text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-zinc-600 text-xs transition"
+                  />
+                </div>
+              </div>
+
+              {/* Telefone / WhatsApp */}
+              <div>
+                <label className="block text-zinc-400 font-medium mb-1">WhatsApp / Telefone (opcional)</label>
+                <div className="relative">
+                  <Phone className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-3" />
+                  <input
+                    type="tel"
+                    placeholder="(00) 00000-0000"
+                    value={novoTelefone}
+                    onChange={(e) => {
+                      let v = e.target.value.replace(/\D/g, '');
+                      if (v.length > 11) v = v.slice(0, 11);
+                      if (v.length > 6) v = `(${v.slice(0, 2)}) ${v.slice(2, 7)}-${v.slice(7)}`;
+                      else if (v.length > 2) v = `(${v.slice(0, 2)}) ${v.slice(2)}`;
+                      else if (v.length > 0) v = `(${v}`;
+                      setNovoTelefone(v);
+                    }}
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl pl-9 pr-3 py-2.5 text-zinc-100 placeholder-zinc-600 focus:outline-none focus:border-zinc-600 text-xs font-mono transition"
+                  />
+                </div>
+              </div>
+
+              {/* Serviço */}
+              <div>
+                <label className="block text-zinc-400 font-medium mb-1">Serviço</label>
+                <select
+                  value={novoServico.id}
+                  onChange={(e) => {
+                    const serv = SERVICOS.find((s) => s.id === e.target.value) || SERVICOS[0];
+                    setNovoServico(serv);
+                  }}
+                  className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2.5 text-zinc-200 focus:outline-none focus:border-zinc-600 text-xs cursor-pointer transition"
+                >
+                  {SERVICOS.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.nome} — R$ {s.preco},00 ({s.duracao} min)
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Data e Horário */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-zinc-400 font-medium mb-1">Data</label>
+                  <input
+                    type="date"
+                    value={novaData}
+                    onChange={(e) => setNovaData(e.target.value)}
+                    required
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2.5 text-zinc-200 focus:outline-none focus:border-zinc-600 text-xs cursor-pointer transition"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-zinc-400 font-medium mb-1">Horário</label>
+                  <select
+                    value={novoHorario}
+                    onChange={(e) => setNovoHorario(e.target.value)}
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl px-3 py-2.5 text-zinc-200 focus:outline-none focus:border-zinc-600 text-xs cursor-pointer transition"
+                  >
+                    {HORARIOS_DISPONIVEIS_PADRAO.map((h) => (
+                      <option key={h} value={h}>
+                        {h}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {erroModal && (
+                <p className="text-red-400 text-xs flex items-center gap-1.5 pt-1">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" /> {erroModal}
+                </p>
+              )}
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setModalNovoAberto(false)}
+                  className="flex-1 py-2.5 rounded-xl border border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition font-medium cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={salvandoManual}
+                  className="flex-1 py-2.5 rounded-xl bg-zinc-100 hover:bg-white text-zinc-950 font-semibold transition active:scale-[0.99] disabled:opacity-50 cursor-pointer"
+                >
+                  {salvandoManual ? 'Salvando...' : 'Salvar Agendamento'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* MODAL DE CONFIRMAÇÃO DE CANCELAMENTO */}
       {confirmDelete && (
