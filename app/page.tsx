@@ -13,8 +13,20 @@ import {
   MapPin,
   MessageSquare,
   Sparkles,
-  ShieldAlert
+  ShieldAlert,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
+
+// --- CALENDÁRIO ---
+const DIAS_SEMANA_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+const MESES_LABELS = [
+  'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
+];
+
+// ⚠️ TROQUE PELO NÚMERO DO WHATSAPP DO BARBEIRO (só números, com DDD)
+const WHATSAPP_BARBEIRO = '5511999999999';
 
 // --- CONFIGURAÇÕES DA BARBEARIA BLACK STAR ---
 const SERVICOS = [
@@ -35,6 +47,14 @@ const HORARIOS_DIA: Record<number, { inicio: string; fim: string } | null> = {
 };
 
 export default function Home() {
+  const hoje = new Date();
+  const hojeStr = hoje.toISOString().split('T')[0];
+
+  // Estado do calendário
+  const [calYear, setCalYear] = useState(hoje.getFullYear());
+  const [calMonth, setCalMonth] = useState(hoje.getMonth());
+
+  // Estado do formulário
   const [servicoSelecionado, setServicoSelecionado] = useState(SERVICOS[0]);
   const [dataSelecionada, setDataSelecionada] = useState('');
   const [horarioInicio, setHorarioInicio] = useState('');
@@ -47,8 +67,58 @@ export default function Home() {
   const [concluido, setConcluido] = useState(false);
   const [dadosComprovante, setDadosComprovante] = useState<any>(null);
 
-  // Auxiliar para datas mínimas (Hoje)
-  const hojeStr = new Date().toISOString().split('T')[0];
+  // --- Lógica do Calendário ---
+  const primeiroDiaMes = new Date(calYear, calMonth, 1).getDay();
+  const diasNoMes = new Date(calYear, calMonth + 1, 0).getDate();
+  const celulasVazias = Array.from({ length: primeiroDiaMes });
+  const diasDoMes = Array.from({ length: diasNoMes }, (_, i) => i + 1);
+
+  const irMesAnterior = () => {
+    if (calMonth === 0) { setCalMonth(11); setCalYear((y) => y - 1); }
+    else setCalMonth((m) => m - 1);
+  };
+  const irProximoMes = () => {
+    if (calMonth === 11) { setCalMonth(0); setCalYear((y) => y + 1); }
+    else setCalMonth((m) => m + 1);
+  };
+
+  const selecionarDia = (dia: number) => {
+    const mm = String(calMonth + 1).padStart(2, '0');
+    const dd = String(dia).padStart(2, '0');
+    const dataStr = `${calYear}-${mm}-${dd}`;
+
+    // Verificar se é data passada
+    if (dataStr < hojeStr) return;
+
+    // Verificar se dia da semana está fechado (0=Dom, 1=Seg)
+    const diaSemana = new Date(dataStr + 'T00:00:00').getDay();
+    if (diaSemana === 0 || diaSemana === 1) return;
+
+    setDataSelecionada(dataStr);
+    setHorarioInicio('');
+  };
+
+  const isDiaSelecionado = (dia: number) => {
+    const mm = String(calMonth + 1).padStart(2, '0');
+    const dd = String(dia).padStart(2, '0');
+    return dataSelecionada === `${calYear}-${mm}-${dd}`;
+  };
+
+  const isDiaDesabilitado = (dia: number) => {
+    const mm = String(calMonth + 1).padStart(2, '0');
+    const dd = String(dia).padStart(2, '0');
+    const dataStr = `${calYear}-${mm}-${dd}`;
+    if (dataStr < hojeStr) return true;
+    const diaSemana = new Date(dataStr + 'T00:00:00').getDay();
+    return diaSemana === 0 || diaSemana === 1;
+  };
+
+  const isHojeDia = (dia: number) => {
+    return calYear === hoje.getFullYear() && calMonth === hoje.getMonth() && dia === hoje.getDate();
+  };
+
+  // Impedir navegar para meses passados
+  const podeMesAnterior = calYear > hoje.getFullYear() || calMonth > hoje.getMonth();
 
   // Buscar agendamentos existentes no Supabase quando selecionar a data
   useEffect(() => {
@@ -281,22 +351,23 @@ export default function Home() {
               </div>
             </div>
 
-            {/* AVISO DA REGRA DE 24 HORAS */}
+            {/* POLÍTICA DE CANCELAMENTO */}
             <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 text-left flex gap-3 text-red-300 text-xs">
               <ShieldAlert className="w-5 h-5 shrink-0 text-red-400 mt-0.5" />
               <div>
                 <strong className="block font-semibold text-red-400 mb-0.5">Política de Cancelamento:</strong>
-                O cancelamento deve ser feito com no mínimo 24h de antecedência. Em caso de não comparecimento ou cancelamento fora do prazo, será cobrado 50% do valor do corte.
+                Cancelamentos devem ser solicitados pelo{' '}
+                <a
+                  href={`https://wa.me/${WHATSAPP_BARBEIRO}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline font-semibold text-red-300 hover:text-white"
+                >
+                  WhatsApp do barbeiro
+                </a>{' '}
+                com no mínimo <strong>24h de antecedência</strong>. Em caso de não comparecimento ou cancelamento fora do prazo, será cobrado <strong>50% do valor</strong>.
               </div>
             </div>
-
-            <button
-              onClick={abrirWhatsAppComprovante}
-              className="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-4 rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-emerald-900/20 transition transform active:scale-95"
-            >
-              <MessageSquare className="w-5 h-5" />
-              Enviar Confirmação para o WhatsApp
-            </button>
 
             <button
               onClick={() => {
@@ -347,22 +418,99 @@ export default function Home() {
               </div>
             </div>
 
-            {/* ETAPA 2: ESCOLHER DATA */}
+            {/* ETAPA 2: ESCOLHER DATA — Calendário Visual */}
             <div className="space-y-3">
               <label className="text-sm font-semibold uppercase tracking-wider text-gray-400 flex items-center gap-2">
                 <Calendar className="w-4 h-4 text-[#d4af37]" /> 2. Escolha a Data
+                {dataSelecionada && (
+                  <span className="ml-auto text-[#d4af37] font-bold text-xs normal-case">
+                    {dataSelecionada.split('-').reverse().join('/')}
+                  </span>
+                )}
               </label>
-              <input
-                type="date"
-                min={hojeStr}
-                value={dataSelecionada}
-                onChange={(e) => {
-                  setDataSelecionada(e.target.value);
-                  setHorarioInicio('');
-                }}
-                className="w-full bg-[#141418] border border-[#26262e] rounded-xl p-3.5 text-white focus:outline-none focus:border-[#d4af37] transition"
-                required
-              />
+
+              <div className="bg-[#141418] border border-[#26262e] rounded-2xl p-4 shadow-inner">
+                {/* Navegação mês */}
+                <div className="flex items-center justify-between mb-4">
+                  <button
+                    type="button"
+                    onClick={irMesAnterior}
+                    disabled={!podeMesAnterior}
+                    className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#26262e] text-gray-400 hover:text-white transition disabled:opacity-20 disabled:cursor-not-allowed"
+                  >
+                    <ChevronLeft className="w-5 h-5" />
+                  </button>
+                  <span className="font-bold text-white text-sm">
+                    {MESES_LABELS[calMonth]} {calYear}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={irProximoMes}
+                    className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#26262e] text-gray-400 hover:text-white transition"
+                  >
+                    <ChevronRight className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {/* Cabeçalho dias */}
+                <div className="grid grid-cols-7 mb-2">
+                  {DIAS_SEMANA_LABELS.map((d, i) => (
+                    <div
+                      key={d}
+                      className={`text-center text-[10px] font-semibold py-1 ${
+                        i === 0 || i === 1 ? 'text-gray-700' : 'text-gray-500'
+                      }`}
+                    >
+                      {d}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Grade de dias */}
+                <div className="grid grid-cols-7 gap-1">
+                  {celulasVazias.map((_, i) => <div key={`ev-${i}`} />)}
+                  {diasDoMes.map((dia) => {
+                    const desabilitado = isDiaDesabilitado(dia);
+                    const selecionado = isDiaSelecionado(dia);
+                    const hoje_ = isHojeDia(dia);
+                    return (
+                      <button
+                        key={dia}
+                        type="button"
+                        disabled={desabilitado}
+                        onClick={() => selecionarDia(dia)}
+                        className={`
+                          aspect-square flex items-center justify-center rounded-lg text-sm font-medium transition
+                          ${
+                            desabilitado
+                              ? 'text-gray-700 cursor-not-allowed'
+                              : selecionado
+                              ? 'bg-[#d4af37] text-black font-bold shadow-md shadow-[#d4af37]/30'
+                              : hoje_
+                              ? 'bg-[#1e1b13] border border-[#d4af37]/40 text-[#d4af37] hover:bg-[#d4af37] hover:text-black'
+                              : 'hover:bg-[#26262e] text-gray-300'
+                          }
+                        `}
+                      >
+                        {dia}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Legenda */}
+                <div className="flex items-center gap-4 mt-4 pt-3 border-t border-[#26262e] text-[10px] text-gray-600">
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-3 h-3 rounded-sm bg-[#d4af37] inline-block" /> Selecionado
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-3 h-3 rounded-sm bg-[#1e1b13] border border-[#d4af37]/40 inline-block" /> Hoje
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-3 h-3 rounded-sm bg-transparent inline-block text-gray-700 text-[9px] font-bold leading-3">✕</span> Fechado
+                  </span>
+                </div>
+              </div>
             </div>
 
             {/* ETAPA 3: HORÁRIOS DISPONÍVEIS */}
@@ -453,7 +601,16 @@ export default function Home() {
                 <div className="p-3.5 bg-yellow-500/10 border border-yellow-500/20 rounded-xl flex gap-2.5 text-xs text-yellow-300/90">
                   <AlertTriangle className="w-4 h-4 shrink-0 text-yellow-400 mt-0.5" />
                   <span>
-                    <strong>Importante:</strong> Cancelamentos só são permitidos com 24h de antecedência. Em caso de ausência, será cobrado 50% do valor.
+                    <strong>Importante:</strong> Cancelamentos devem ser solicitados pelo{' '}
+                    <a
+                      href={`https://wa.me/${WHATSAPP_BARBEIRO}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="underline font-semibold text-yellow-300 hover:text-white"
+                    >
+                      WhatsApp do barbeiro
+                    </a>{' '}
+                    com no mínimo <strong>24h de antecedência</strong>. Em caso de ausência ou cancelamento fora do prazo, será cobrado <strong>50% do valor</strong>.
                   </span>
                 </div>
 
