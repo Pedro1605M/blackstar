@@ -5,21 +5,22 @@ import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import {
   Scissors,
-  Calendar,
+  Calendar as CalendarIcon,
   Clock,
   User,
   Phone,
   ChevronLeft,
   ChevronRight,
-  Sparkles,
   RefreshCw,
   MessageSquare,
   Trash2,
   AlertTriangle,
   Lock,
   LogOut,
-  KeyRound,
   ArrowLeft,
+  DollarSign,
+  CalendarDays,
+  CheckCircle2,
 } from 'lucide-react';
 
 // --- CONFIGURAÇÕES ---
@@ -29,7 +30,7 @@ const MESES = [
   'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
 ];
 
-// PIN de acesso do barbeiro (pode ser configurado no .env.local via NEXT_PUBLIC_ADMIN_PIN)
+// PIN de acesso do barbeiro (configurável no .env.local via NEXT_PUBLIC_ADMIN_PIN)
 const ADMIN_PIN = process.env.NEXT_PUBLIC_ADMIN_PIN || '1234';
 
 type Agendamento = {
@@ -45,21 +46,33 @@ type Agendamento = {
 
 export default function AgendaAdmin() {
   const today = new Date();
-  const todayStr = today.toISOString().split('T')[0];
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 
-  // Estado de autenticação do PIN
+  // Autenticação
   const [autenticado, setAutenticado] = useState<boolean | null>(null);
   const [pinInput, setPinInput] = useState('');
   const [erroPin, setErroPin] = useState(false);
 
+  // Navegação de Data
   const [calYear, setCalYear] = useState(today.getFullYear());
   const [calMonth, setCalMonth] = useState(today.getMonth());
   const [dataSelecionada, setDataSelecionada] = useState(todayStr);
+
+  // Dados
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
+  const [diasComAgendamento, setDiasComAgendamento] = useState<Set<string>>(new Set());
   const [carregando, setCarregando] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
-  // Verifica se o barbeiro já fez login anteriormente neste dispositivo
+  // Anos disponíveis para seleção rápida no dropdown
+  const anosDisponiveis = [
+    today.getFullYear() - 1,
+    today.getFullYear(),
+    today.getFullYear() + 1,
+    today.getFullYear() + 2,
+  ];
+
+  // Checar login salvo
   useEffect(() => {
     const salvo = typeof window !== 'undefined' ? localStorage.getItem('blackstar_admin_auth') : null;
     setAutenticado(salvo === 'true');
@@ -83,11 +96,8 @@ export default function AgendaAdmin() {
     setPinInput('');
   };
 
-  // Formatar data YYYY-MM-DD para DD/MM/YYYY
-  const formatarData = (d: string) => d.split('-').reverse().join('/');
-
   // Buscar agendamentos do dia selecionado
-  const carregarAgendamentos = useCallback(async () => {
+  const carregarAgendamentosDoDia = useCallback(async () => {
     setCarregando(true);
     const { data, error } = await supabase
       .from('agendamentos')
@@ -101,13 +111,41 @@ export default function AgendaAdmin() {
     setCarregando(false);
   }, [dataSelecionada]);
 
+  // Buscar dias com agendamento no mês corrente para marcar com ponto no calendário
+  const carregarDiasOcupadosNoMes = useCallback(async () => {
+    const mm = String(calMonth + 1).padStart(2, '0');
+    const inicioMes = `${calYear}-${mm}-01`;
+    const diasNoMesAtual = new Date(calYear, calMonth + 1, 0).getDate();
+    const fimMes = `${calYear}-${mm}-${String(diasNoMesAtual).padStart(2, '0')}`;
+
+    const { data, error } = await supabase
+      .from('agendamentos')
+      .select('data_agendamento')
+      .gte('data_agendamento', inicioMes)
+      .lte('data_agendamento', fimMes);
+
+    if (!error && data) {
+      const setDias = new Set<string>();
+      data.forEach((item: { data_agendamento: string }) => {
+        setDias.add(item.data_agendamento);
+      });
+      setDiasComAgendamento(setDias);
+    }
+  }, [calYear, calMonth]);
+
   useEffect(() => {
     if (autenticado) {
-      carregarAgendamentos();
+      carregarAgendamentosDoDia();
     }
-  }, [carregarAgendamentos, autenticado]);
+  }, [carregarAgendamentosDoDia, autenticado]);
 
-  // Cancelar/deletar agendamento
+  useEffect(() => {
+    if (autenticado) {
+      carregarDiasOcupadosNoMes();
+    }
+  }, [carregarDiasOcupadosNoMes, autenticado]);
+
+  // Excluir agendamento
   const cancelarAgendamento = async (id: string) => {
     const { error } = await supabase
       .from('agendamentos')
@@ -116,11 +154,12 @@ export default function AgendaAdmin() {
 
     if (!error) {
       setAgendamentos((prev) => prev.filter((a) => a.id !== id));
+      carregarDiasOcupadosNoMes();
     }
     setConfirmDelete(null);
   };
 
-  // Abrir WhatsApp com mensagem de lembrete / confirmação
+  // Enviar lembrete via WhatsApp
   const abrirWhatsApp = (a: Agendamento) => {
     const numLimpo = a.cliente_telefone.replace(/\D/g, '');
     const [ano, mes, dia] = a.data_agendamento.split('-');
@@ -133,17 +172,36 @@ export default function AgendaAdmin() {
     window.open(`https://wa.me/55${numLimpo}?text=${mensagem}`, '_blank');
   };
 
-  // --- Lógica do Calendário ---
-  const primeiroDia = new Date(calYear, calMonth, 1).getDay();
-  const diasNoMes = new Date(calYear, calMonth + 1, 0).getDate();
-
-  const irMesAnterior = () => {
-    if (calMonth === 0) { setCalMonth(11); setCalYear((y) => y - 1); }
-    else setCalMonth((m) => m - 1);
+  // Formatar data por extenso (ex: Segunda-feira, 21 de Setembro de 2026)
+  const formatarDataExtenso = (dataIso: string) => {
+    if (!dataIso) return '';
+    const [ano, mes, dia] = dataIso.split('-').map(Number);
+    const dateObj = new Date(ano, mes - 1, dia);
+    return dateObj.toLocaleDateString('pt-BR', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+    });
   };
+
+  // Funções de navegação de data
+  const irMesAnterior = () => {
+    if (calMonth === 0) {
+      setCalMonth(11);
+      setCalYear((y) => y - 1);
+    } else {
+      setCalMonth((m) => m - 1);
+    }
+  };
+
   const irProximoMes = () => {
-    if (calMonth === 11) { setCalMonth(0); setCalYear((y) => y + 1); }
-    else setCalMonth((m) => m + 1);
+    if (calMonth === 11) {
+      setCalMonth(0);
+      setCalYear((y) => y + 1);
+    } else {
+      setCalMonth((m) => m + 1);
+    }
   };
 
   const selecionarDia = (dia: number) => {
@@ -152,52 +210,58 @@ export default function AgendaAdmin() {
     setDataSelecionada(`${calYear}-${mm}-${dd}`);
   };
 
-  const isDiaSelecionado = (dia: number) => {
-    const mm = String(calMonth + 1).padStart(2, '0');
-    const dd = String(dia).padStart(2, '0');
-    return dataSelecionada === `${calYear}-${mm}-${dd}`;
+  const irParaHoje = () => {
+    setCalYear(today.getFullYear());
+    setCalMonth(today.getMonth());
+    setDataSelecionada(todayStr);
   };
 
-  const isHoje = (dia: number) => {
-    return (
-      calYear === today.getFullYear() &&
-      calMonth === today.getMonth() &&
-      dia === today.getDate()
-    );
+  const irParaAmanha = () => {
+    const amanha = new Date();
+    amanha.setDate(today.getDate() + 1);
+    const amanhaStr = `${amanha.getFullYear()}-${String(amanha.getMonth() + 1).padStart(2, '0')}-${String(amanha.getDate()).padStart(2, '0')}`;
+    setCalYear(amanha.getFullYear());
+    setCalMonth(amanha.getMonth());
+    setDataSelecionada(amanhaStr);
   };
 
-  // Célula vazia para alinhar o calendário
-  const celulasVazias = Array.from({ length: primeiroDia });
-  const diasDoMes = Array.from({ length: diasNoMes }, (_, i) => i + 1);
+  // Lógica do grid do calendário
+  const primeiroDiaSemana = new Date(calYear, calMonth, 1).getDay();
+  const totalDiasNoMes = new Date(calYear, calMonth + 1, 0).getDate();
+  const celulasVazias = Array.from({ length: primeiroDiaSemana });
+  const diasDoMes = Array.from({ length: totalDiasNoMes }, (_, i) => i + 1);
 
-  // Carregamento inicial da verificação do localStorage
+  // Cálculos de métricas do dia
+  const faturamentoTotalDia = agendamentos.reduce((acc, a) => acc + Number(a.servico_preco || 0), 0);
+  const primeiroHorario = agendamentos.length > 0 ? agendamentos[0].horario_inicio.slice(0, 5) : null;
+
+  // Carregamento inicial de verificação de autenticação
   if (autenticado === null) {
     return (
-      <div className="min-h-screen bg-[#0d0d0f] flex items-center justify-center">
-        <RefreshCw className="w-8 h-8 text-[#d4af37] animate-spin" />
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
+        <RefreshCw className="w-6 h-6 text-zinc-500 animate-spin" />
       </div>
     );
   }
 
-  // TELA DE BLOQUEIO / PIN
+  // TELA DE AUTENTICAÇÃO / PIN SÓBRIA E PROFISSIONAL
   if (!autenticado) {
     return (
-      <div className="min-h-screen bg-[#0d0d0f] text-gray-100 flex items-center justify-center p-4 font-sans">
-        <div className="w-full max-w-sm bg-[#141418] border border-[#26262e] rounded-3xl p-8 shadow-2xl space-y-6 text-center">
-          <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-[#d4af37] to-[#f3e5ab] flex items-center justify-center mx-auto shadow-lg shadow-[#d4af37]/20">
-            <Lock className="w-8 h-8 text-black" />
-          </div>
-
-          <div className="space-y-1">
-            <h1 className="text-xl font-black tracking-wider text-white uppercase flex items-center justify-center gap-2">
-              BLACK STAR <Sparkles className="w-4 h-4 text-[#d4af37]" />
-            </h1>
-            <p className="text-xs text-[#d4af37] font-semibold tracking-widest uppercase">Área Restrita do Barbeiro</p>
-            <p className="text-xs text-gray-400 pt-2">Digite o PIN de acesso para gerenciar os horários e agendamentos.</p>
+      <div className="min-h-screen bg-zinc-950 text-zinc-100 flex items-center justify-center p-4">
+        <div className="w-full max-w-sm bg-zinc-900 border border-zinc-800 rounded-2xl p-8 shadow-xl space-y-6">
+          <div className="text-center space-y-2">
+            <div className="w-12 h-12 rounded-xl bg-zinc-800 border border-zinc-700/80 flex items-center justify-center mx-auto text-zinc-300">
+              <Lock className="w-5 h-5" />
+            </div>
+            <h1 className="text-lg font-semibold text-zinc-100 tracking-tight">Black Star Barber</h1>
+            <p className="text-xs text-zinc-400">Painel Administrativo do Barbeiro</p>
           </div>
 
           <form onSubmit={handleLogin} className="space-y-4">
             <div>
+              <label className="block text-xs font-medium text-zinc-400 mb-2">
+                PIN de Segurança
+              </label>
               <input
                 type="password"
                 inputMode="numeric"
@@ -210,11 +274,11 @@ export default function AgendaAdmin() {
                 }}
                 placeholder="••••"
                 autoFocus
-                className={`w-full text-center tracking-[0.5em] font-mono text-2xl py-3 px-4 rounded-xl bg-[#0d0d0f] border ${
+                className={`w-full text-center tracking-[0.4em] font-mono text-xl py-2.5 px-4 rounded-xl bg-zinc-950 border ${
                   erroPin
                     ? 'border-red-500 text-red-400 focus:ring-red-500'
-                    : 'border-[#26262e] text-white focus:border-[#d4af37] focus:ring-[#d4af37]'
-                } outline-none focus:ring-1 transition`}
+                    : 'border-zinc-800 text-zinc-100 focus:border-zinc-500 focus:ring-1 focus:ring-zinc-500'
+                } outline-none transition`}
               />
               {erroPin && (
                 <p className="text-red-400 text-xs mt-2 flex items-center justify-center gap-1">
@@ -225,18 +289,18 @@ export default function AgendaAdmin() {
 
             <button
               type="submit"
-              className="w-full py-3 rounded-xl bg-gradient-to-r from-[#d4af37] to-[#b89728] text-black font-bold uppercase tracking-wider text-sm hover:opacity-95 active:scale-[0.98] transition shadow-lg shadow-[#d4af37]/20 flex items-center justify-center gap-2 cursor-pointer"
+              className="w-full py-2.5 rounded-xl bg-zinc-100 hover:bg-white text-zinc-900 font-medium text-sm transition active:scale-[0.99] cursor-pointer"
             >
-              <KeyRound className="w-4 h-4" /> Entrar no Painel
+              Acessar Painel
             </button>
           </form>
 
-          <div className="pt-2 border-t border-[#26262e]">
+          <div className="pt-4 border-t border-zinc-800/80 text-center">
             <Link
               href="/"
-              className="inline-flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-300 transition"
+              className="inline-flex items-center gap-1.5 text-xs text-zinc-500 hover:text-zinc-300 transition"
             >
-              <ArrowLeft className="w-3.5 h-3.5" /> Voltar para o site
+              <ArrowLeft className="w-3.5 h-3.5" /> Voltar ao site
             </Link>
           </div>
         </div>
@@ -244,36 +308,39 @@ export default function AgendaAdmin() {
     );
   }
 
+  // PAINEL ADMINISTRATIVO PROFISSIONAL
   return (
-    <div className="min-h-screen bg-[#0d0d0f] text-gray-100 flex flex-col font-sans">
+    <div className="min-h-screen bg-zinc-950 text-zinc-100 flex flex-col font-sans selection:bg-zinc-800 selection:text-zinc-100">
 
-      {/* HEADER */}
-      <header className="border-b border-[#26262e] bg-[#121215]/90 backdrop-blur sticky top-0 z-50">
-        <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-[#d4af37] to-[#f3e5ab] flex items-center justify-center shadow-lg shadow-[#d4af37]/20">
-              <Scissors className="w-5 h-5 text-black" />
+      {/* HEADER EXECUTIVO */}
+      <header className="border-b border-zinc-800/80 bg-zinc-900/60 backdrop-blur sticky top-0 z-40">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3.5 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-zinc-800 border border-zinc-700/70 flex items-center justify-center text-zinc-200">
+              <Scissors className="w-4 h-4" />
             </div>
             <div>
-              <h1 className="text-xl font-black tracking-wider text-white uppercase flex items-center gap-2">
-                BLACK STAR <Sparkles className="w-4 h-4 text-[#d4af37]" />
-              </h1>
-              <p className="text-xs text-[#d4af37] font-semibold">Painel do Barbeiro</p>
+              <h1 className="text-sm font-semibold tracking-tight text-zinc-100">Black Star Barber</h1>
+              <p className="text-[11px] text-zinc-400">Gestão de Agenda e Clientes</p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
             <button
-              onClick={carregarAgendamentos}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#1c1c22] border border-[#2d2d38] text-gray-300 hover:text-[#d4af37] hover:border-[#d4af37] transition text-xs font-medium cursor-pointer"
+              onClick={() => {
+                carregarAgendamentosDoDia();
+                carregarDiasOcupadosNoMes();
+              }}
+              title="Recarregar dados"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-zinc-300 transition text-xs font-medium cursor-pointer"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${carregando ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${carregando ? 'animate-spin text-zinc-400' : ''}`} />
               <span className="hidden sm:inline">Atualizar</span>
             </button>
             <button
               onClick={handleLogout}
-              title="Bloquear painel / Sair"
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#1c1c22] border border-[#2d2d38] text-gray-400 hover:text-red-400 hover:border-red-900/50 transition text-xs font-medium cursor-pointer"
+              title="Bloquear painel"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-red-950/40 border border-zinc-800 hover:border-red-900/50 text-zinc-400 hover:text-red-400 transition text-xs font-medium cursor-pointer"
             >
               <LogOut className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Sair</span>
@@ -282,160 +349,276 @@ export default function AgendaAdmin() {
         </div>
       </header>
 
-      <main className="flex-1 max-w-4xl w-full mx-auto p-4 md:p-6 space-y-6">
+      <main className="flex-1 max-w-5xl w-full mx-auto p-4 sm:p-6 space-y-6">
 
-        <div className="grid md:grid-cols-[340px_1fr] gap-6 items-start">
+        {/* MÉTRICAS / RESUMO DO DIA SELECIONADO */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+          <div className="bg-zinc-900/70 border border-zinc-800/80 rounded-xl p-4 flex items-center justify-between">
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-zinc-400">Agendamentos no Dia</p>
+              <p className="text-2xl font-semibold text-zinc-100">
+                {agendamentos.length}
+              </p>
+            </div>
+            <div className="w-10 h-10 rounded-lg bg-zinc-800/60 border border-zinc-750 flex items-center justify-center text-zinc-300">
+              <CalendarDays className="w-5 h-5" />
+            </div>
+          </div>
 
-          {/* CALENDÁRIO */}
-          <div className="bg-[#141418] border border-[#26262e] rounded-2xl p-5 shadow-xl">
-            {/* Navegação mês */}
-            <div className="flex items-center justify-between mb-4">
-              <button
-                onClick={irMesAnterior}
-                className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#26262e] text-gray-400 hover:text-white transition"
-              >
-                <ChevronLeft className="w-5 h-5" />
-              </button>
-              <span className="font-bold text-white text-sm">
-                {MESES[calMonth]} {calYear}
-              </span>
-              <button
-                onClick={irProximoMes}
-                className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#26262e] text-gray-400 hover:text-white transition"
-              >
-                <ChevronRight className="w-5 h-5" />
-              </button>
+          <div className="bg-zinc-900/70 border border-zinc-800/80 rounded-xl p-4 flex items-center justify-between">
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-zinc-400">Faturamento Previsto</p>
+              <p className="text-2xl font-semibold text-zinc-100">
+                R$ {faturamentoTotalDia},00
+              </p>
+            </div>
+            <div className="w-10 h-10 rounded-lg bg-zinc-800/60 border border-zinc-750 flex items-center justify-center text-amber-400">
+              <DollarSign className="w-5 h-5" />
+            </div>
+          </div>
+
+          <div className="bg-zinc-900/70 border border-zinc-800/80 rounded-xl p-4 flex items-center justify-between">
+            <div className="space-y-1">
+              <p className="text-xs font-medium text-zinc-400">Primeiro Horário</p>
+              <p className="text-2xl font-semibold text-zinc-100">
+                {primeiroHorario ? `${primeiroHorario}h` : '—'}
+              </p>
+            </div>
+            <div className="w-10 h-10 rounded-lg bg-zinc-800/60 border border-zinc-750 flex items-center justify-center text-zinc-300">
+              <Clock className="w-5 h-5" />
+            </div>
+          </div>
+        </div>
+
+        {/* ÁREA PRINCIPAL: CALENDÁRIO + HORÁRIOS */}
+        <div className="grid grid-cols-1 md:grid-cols-[330px_1fr] gap-6 items-start">
+
+          {/* CALENDÁRIO COM SELETOR FLUIDO DE MÊS E ANO */}
+          <div className="bg-zinc-900/70 border border-zinc-800/80 rounded-2xl p-5 space-y-4">
+
+            {/* SELETOR FLUIDO: DROPDOWNS DIRETOS + ATALHOS */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-1">
+                {/* Seletores Diretos de Mês e Ano */}
+                <div className="flex items-center gap-1.5 flex-1">
+                  <select
+                    value={calMonth}
+                    onChange={(e) => setCalMonth(Number(e.target.value))}
+                    className="bg-zinc-950 border border-zinc-800 text-zinc-200 text-xs font-medium py-1.5 px-2.5 rounded-lg outline-none focus:border-zinc-600 cursor-pointer"
+                  >
+                    {MESES.map((mes, idx) => (
+                      <option key={mes} value={idx}>
+                        {mes}
+                      </option>
+                    ))}
+                  </select>
+
+                  <select
+                    value={calYear}
+                    onChange={(e) => setCalYear(Number(e.target.value))}
+                    className="bg-zinc-950 border border-zinc-800 text-zinc-200 text-xs font-medium py-1.5 px-2.5 rounded-lg outline-none focus:border-zinc-600 cursor-pointer"
+                  >
+                    {anosDisponiveis.map((ano) => (
+                      <option key={ano} value={ano}>
+                        {ano}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Setas de avançar/voltar um mês */}
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={irMesAnterior}
+                    title="Mês anterior"
+                    className="w-7 h-7 flex items-center justify-center rounded-lg bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-zinc-200 transition cursor-pointer"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={irProximoMes}
+                    title="Próximo mês"
+                    className="w-7 h-7 flex items-center justify-center rounded-lg bg-zinc-950 hover:bg-zinc-800 border border-zinc-800 text-zinc-400 hover:text-zinc-200 transition cursor-pointer"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Botões de Atalho Rápido */}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={irParaHoje}
+                  className={`flex-1 py-1 px-2.5 rounded-lg text-xs font-medium border transition cursor-pointer ${
+                    dataSelecionada === todayStr
+                      ? 'bg-zinc-800 border-zinc-700 text-zinc-100'
+                      : 'bg-zinc-950 border-zinc-800/80 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50'
+                  }`}
+                >
+                  Hoje
+                </button>
+                <button
+                  type="button"
+                  onClick={irParaAmanha}
+                  className="flex-1 py-1 px-2.5 rounded-lg text-xs font-medium border bg-zinc-950 border-zinc-800/80 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/50 transition cursor-pointer"
+                >
+                  Amanhã
+                </button>
+              </div>
             </div>
 
-            {/* Cabeçalho dias da semana */}
-            <div className="grid grid-cols-7 mb-2">
+            {/* CABEÇALHO DIAS DA SEMANA */}
+            <div className="grid grid-cols-7 text-center">
               {DIAS_SEMANA.map((d) => (
-                <div key={d} className="text-center text-[10px] font-semibold text-gray-500 py-1">
+                <span key={d} className="text-[11px] font-medium text-zinc-500 py-1">
                   {d}
-                </div>
+                </span>
               ))}
             </div>
 
-            {/* Dias */}
+            {/* GRID DO MÊS */}
             <div className="grid grid-cols-7 gap-1">
-              {celulasVazias.map((_, i) => <div key={`e-${i}`} />)}
+              {celulasVazias.map((_, i) => (
+                <div key={`v-${i}`} className="aspect-square" />
+              ))}
               {diasDoMes.map((dia) => {
-                const selecionado = isDiaSelecionado(dia);
-                const hoje = isHoje(dia);
+                const mm = String(calMonth + 1).padStart(2, '0');
+                const dd = String(dia).padStart(2, '0');
+                const isoDate = `${calYear}-${mm}-${dd}`;
+                const selecionado = dataSelecionada === isoDate;
+                const isHoje = todayStr === isoDate;
+                const temAgendamento = diasComAgendamento.has(isoDate);
+
                 return (
                   <button
                     key={dia}
                     onClick={() => selecionarDia(dia)}
-                    className={`
-                      aspect-square flex items-center justify-center rounded-lg text-sm font-medium transition
-                      ${selecionado
-                        ? 'bg-[#d4af37] text-black font-bold shadow-md shadow-[#d4af37]/30'
-                        : hoje
-                        ? 'bg-[#1e1b13] border border-[#d4af37]/40 text-[#d4af37]'
-                        : 'hover:bg-[#26262e] text-gray-300'
-                      }
-                    `}
+                    className={`aspect-square relative flex flex-col items-center justify-center rounded-lg text-xs font-medium transition cursor-pointer ${
+                      selecionado
+                        ? 'bg-zinc-100 text-zinc-950 font-bold shadow-sm'
+                        : isHoje
+                        ? 'border border-amber-500/50 text-amber-400 hover:bg-zinc-800'
+                        : 'hover:bg-zinc-800 text-zinc-300'
+                    }`}
                   >
-                    {dia}
+                    <span>{dia}</span>
+                    {/* Indicador sutil de agendamentos no dia */}
+                    {temAgendamento && (
+                      <span
+                        className={`w-1 h-1 rounded-full absolute bottom-1.5 ${
+                          selecionado ? 'bg-zinc-950' : 'bg-amber-400'
+                        }`}
+                      />
+                    )}
                   </button>
                 );
               })}
             </div>
+
+            <div className="pt-2 border-t border-zinc-800/60 flex items-center justify-between text-[11px] text-zinc-500">
+              <span className="flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 inline-block" /> Com clientes
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 border border-amber-500/60 rounded inline-block" /> Hoje
+              </span>
+            </div>
           </div>
 
-          {/* PAINEL DE AGENDAMENTOS */}
+          {/* LISTA DE AGENDAMENTOS DO DIA */}
           <div className="space-y-4">
-            {/* Título do dia */}
-            <div className="flex items-center justify-between">
+            {/* TÍTULO DA DATA SELECIONADA */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-zinc-800/80 gap-2">
               <div>
-                <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                  <Calendar className="w-5 h-5 text-[#d4af37]" />
-                  {formatarData(dataSelecionada)}
+                <h2 className="text-base font-semibold text-zinc-100 capitalize">
+                  {formatarDataExtenso(dataSelecionada)}
                 </h2>
-                <p className="text-xs text-gray-500 mt-0.5">
+                <p className="text-xs text-zinc-400">
                   {agendamentos.length === 0
-                    ? 'Nenhum agendamento neste dia'
-                    : `${agendamentos.length} agendamento${agendamentos.length > 1 ? 's' : ''}`}
+                    ? 'Nenhum horário marcado'
+                    : `${agendamentos.length} cliente${agendamentos.length > 1 ? 's' : ''} agendado${agendamentos.length > 1 ? 's' : ''}`}
                 </p>
               </div>
 
-              {/* Resumo de faturamento */}
               {agendamentos.length > 0 && (
-                <div className="text-right">
-                  <p className="text-xs text-gray-500">Total do dia</p>
-                  <p className="text-xl font-extrabold text-[#d4af37]">
-                    R$ {agendamentos.reduce((acc, a) => acc + a.servico_preco, 0)},00
-                  </p>
+                <div className="flex items-center gap-1.5 text-xs text-zinc-400">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-zinc-500" />
+                  <span>{agendamentos.length} horários ocupados</span>
                 </div>
               )}
             </div>
 
-            {/* Lista de agendamentos */}
+            {/* CONTEÚDO DOS AGENDAMENTOS */}
             {carregando ? (
-              <div className="py-12 text-center text-gray-500 text-sm flex flex-col items-center gap-3">
-                <RefreshCw className="w-6 h-6 animate-spin text-[#d4af37]" />
-                Carregando agendamentos...
+              <div className="py-16 text-center text-zinc-500 text-xs flex flex-col items-center gap-3">
+                <RefreshCw className="w-5 h-5 animate-spin text-zinc-400" />
+                Carregando horários...
               </div>
             ) : agendamentos.length === 0 ? (
-              <div className="py-12 text-center bg-[#141418] border border-[#26262e] rounded-2xl">
-                <Calendar className="w-10 h-10 text-gray-700 mx-auto mb-3" />
-                <p className="text-gray-500 text-sm">Nenhum horário marcado neste dia.</p>
+              <div className="py-16 text-center bg-zinc-900/40 border border-zinc-800/60 rounded-2xl space-y-2">
+                <CalendarIcon className="w-8 h-8 text-zinc-700 mx-auto" />
+                <p className="text-sm font-medium text-zinc-400">Sem agendamentos nesta data</p>
+                <p className="text-xs text-zinc-600 max-w-xs mx-auto">
+                  Os agendamentos feitos pelos clientes no site aparecerão aqui automaticamente.
+                </p>
               </div>
             ) : (
               <div className="space-y-3">
                 {agendamentos.map((a) => (
                   <div
                     key={a.id}
-                    className="bg-[#141418] border border-[#26262e] rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center gap-4 hover:border-[#d4af37]/30 transition"
+                    className="bg-zinc-900/70 border border-zinc-800/80 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center gap-4 hover:border-zinc-700 transition"
                   >
-                    {/* Horário */}
+                    {/* Bloco de Horário */}
                     <div className="flex items-center gap-3 sm:w-28 shrink-0">
-                      <div className="w-10 h-10 rounded-xl bg-[#1e1b13] border border-[#d4af37]/30 flex items-center justify-center shrink-0">
-                        <Clock className="w-4 h-4 text-[#d4af37]" />
+                      <div className="w-9 h-9 rounded-lg bg-zinc-800/80 border border-zinc-700/60 flex items-center justify-center text-zinc-300 shrink-0">
+                        <Clock className="w-4 h-4" />
                       </div>
                       <div>
-                        <p className="font-bold text-white text-base">{a.horario_inicio}</p>
-                        <p className="text-xs text-gray-500">até {a.horario_fim}</p>
+                        <p className="font-semibold text-zinc-100 text-sm">{a.horario_inicio.slice(0, 5)}</p>
+                        <p className="text-[11px] text-zinc-500">até {a.horario_fim.slice(0, 5)}</p>
                       </div>
                     </div>
 
-                    {/* Divisor vertical */}
-                    <div className="hidden sm:block w-px h-12 bg-[#26262e]" />
+                    <div className="hidden sm:block w-px h-10 bg-zinc-800" />
 
-                    {/* Dados do cliente */}
-                    <div className="flex-1 space-y-1">
+                    {/* Informações do Cliente & Serviço */}
+                    <div className="flex-1 min-w-0 space-y-1">
                       <div className="flex items-center gap-2">
-                        <User className="w-3.5 h-3.5 text-gray-500 shrink-0" />
-                        <span className="font-semibold text-white text-sm">{a.cliente_nome}</span>
+                        <User className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                        <span className="font-medium text-zinc-100 text-sm truncate">{a.cliente_nome}</span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <Phone className="w-3.5 h-3.5 text-gray-500 shrink-0" />
-                        <span className="text-gray-400 text-sm">{a.cliente_telefone}</span>
+                        <Phone className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                        <span className="text-zinc-400 text-xs font-mono">{a.cliente_telefone}</span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <Scissors className="w-3.5 h-3.5 text-gray-500 shrink-0" />
-                        <span className="text-gray-400 text-sm">{a.servico_nome}</span>
-                        <span className="ml-auto font-bold text-[#d4af37] text-sm">R$ {a.servico_preco},00</span>
+                        <Scissors className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                        <span className="text-zinc-400 text-xs truncate">{a.servico_nome}</span>
+                        <span className="ml-auto font-medium text-amber-400 text-xs">
+                          R$ {a.servico_preco},00
+                        </span>
                       </div>
                     </div>
 
                     {/* Ações */}
-                    <div className="flex items-center gap-2 sm:flex-col sm:items-end">
+                    <div className="flex items-center gap-2 sm:flex-col sm:items-end shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-zinc-800/60">
                       <button
                         onClick={() => abrirWhatsApp(a)}
                         title="Enviar lembrete pelo WhatsApp"
-                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-900/40 border border-emerald-700/30 text-emerald-400 hover:bg-emerald-800/50 hover:border-emerald-600 transition text-xs font-medium"
+                        className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-950/60 border border-emerald-800/50 text-emerald-400 hover:bg-emerald-900/60 transition text-xs font-medium cursor-pointer"
                       >
                         <MessageSquare className="w-3.5 h-3.5" />
                         Lembrar cliente
                       </button>
                       <button
                         onClick={() => setConfirmDelete(a.id)}
-                        title="Cancelar agendamento"
-                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-900/30 border border-red-800/30 text-red-400 hover:bg-red-900/50 hover:border-red-700 transition text-xs font-medium"
+                        title="Remover agendamento"
+                        className="flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-zinc-800/60 hover:bg-red-950/40 border border-zinc-700/50 hover:border-red-900/50 text-zinc-400 hover:text-red-400 transition text-xs font-medium cursor-pointer"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
-                        Cancelar
+                        <span className="sm:hidden">Cancelar</span>
                       </button>
                     </div>
                   </div>
@@ -448,27 +631,27 @@ export default function AgendaAdmin() {
 
       {/* MODAL DE CONFIRMAÇÃO DE CANCELAMENTO */}
       {confirmDelete && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-[#141418] border border-red-500/30 rounded-2xl p-6 max-w-sm w-full shadow-2xl space-y-4">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 max-w-sm w-full shadow-2xl space-y-4">
             <div className="flex items-center gap-3 text-red-400">
-              <AlertTriangle className="w-6 h-6 shrink-0" />
-              <h3 className="font-bold text-white text-lg">Cancelar agendamento?</h3>
+              <AlertTriangle className="w-5 h-5 shrink-0" />
+              <h3 className="font-semibold text-zinc-100 text-base">Cancelar agendamento?</h3>
             </div>
-            <p className="text-gray-400 text-sm">
-              Essa ação é irreversível. O agendamento será removido do sistema.
+            <p className="text-zinc-400 text-xs leading-relaxed">
+              Essa ação removerá o agendamento do banco de dados e liberará o horário para outros clientes.
             </p>
-            <div className="flex gap-3 pt-2">
+            <div className="flex gap-2 pt-2">
               <button
                 onClick={() => setConfirmDelete(null)}
-                className="flex-1 py-2.5 rounded-xl border border-[#26262e] text-gray-400 hover:text-white hover:border-gray-600 transition text-sm font-medium"
+                className="flex-1 py-2 rounded-xl border border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition text-xs font-medium cursor-pointer"
               >
                 Voltar
               </button>
               <button
                 onClick={() => cancelarAgendamento(confirmDelete)}
-                className="flex-1 py-2.5 rounded-xl bg-red-700 hover:bg-red-600 text-white font-bold transition text-sm"
+                className="flex-1 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white font-medium transition text-xs cursor-pointer"
               >
-                Sim, cancelar
+                Confirmar cancelamento
               </button>
             </div>
           </div>
